@@ -1,0 +1,27 @@
+# Figs should be regenerated and code recompiled each run
+MTG_handled/*
+figs/*
+build/*
+
+image_list.txt
+
+# Don't want the output files in the repo
+*.nc
+out
+
+# Cartopy sometimes puts stuff here
+.local/*
+# Matplotlib sometimes puts rubbish here
+.config/*
+
+# Don't want to keep the python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Don't keep figures 
+gif_frames/
+*.gif
+*.png
+
+

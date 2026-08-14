@@ -1,0 +1,38 @@
+[project]
+name = "magic"
+version = "0.1.0"
+description = "MTG to GHI for sunflow"
+requires-python = ">=3.11"
+
+dependencies = [
+    "numpy==2.4.4",
+    "scipy==1.17.1",
+    "pandas==3.0.3",
+    "xarray==2026.4.0",
+    "dask==2026.6.0",
+    "matplotlib==3.10.9",
+    "seaborn==0.13.2",
+    "plotly==6.7.0",
+    "satpy==0.60.0",
+    "pyresample==1.35.0",
+    "pyproj==3.7.2",
+    "shapely==2.1.2",
+    "pyorbital==1.12.1",
+    "h5py==3.16.0",
+    "netcdf4",
+    "zarr==3.1.6",
+    "pillow==12.2.0",
+    "requests==2.34.2",
+    "pyyaml==6.0.3",
+    "hdf5plugin>=6.0.0",
+    "h5netcdf>=1.8.1",
+    "eumdac>=3.1.1",
+    "cartopy>=0.25.0",
+    "imageio-ffmpeg>=0.6.0",
+]
+
+[dependency-groups]
+dev = [
+    "cmake>=4.4.0",
+]
+
