@@ -5,13 +5,14 @@ set -euo pipefail
 ROOT="$PWD"
 
 ## Defaults
-REF_TIME="Yesterday 08:00"   # UTC time!
+REF_TIME="" # UTC time!
 NOCLEAN="${NOCLEAN:-0}"      # set to 1 to keep existing outputs
 REBUILD="${REBUILD:-1}"      # set to 0 to skip cmake rebuild
 VERBOSE="${VERBOSE:-1}"
 TIMER="${TIMER:-0}"          # whether or not to make output of timing the c code
 HI_PRECISION=ON
 CHANNEL="vis_06"
+DEMO="${DEMO:-1}"              # 1 = use local demo data, 0 = user supplies MTG_RAW_DIR
 MTG_RAW_DIR="${MTG_RAW_DIR:-}"
 
 valid_channels=(vis_04 vis_05 vis_06 vis_08 vis_09 nir_13 nir_16 nir_22)
@@ -20,8 +21,10 @@ usage() {
     echo "Usage: $0 [options]"
     echo
     echo "Options:"
-    echo "  --ref-time TIME       Reference time (default: '$REF_TIME')"
+    echo "  --ref-time TIME       Reference time (not available in demo mode)"
     echo "  --channel CHANNEL     Satellite channel (default: $CHANNEL)"
+    echo "  --demo                Use local demo data (default)"
+    echo "  --no-demo             Use MTG_RAW_DIR instead of demo data"
     echo "  --noclean             Keep existing outputs"
     echo "  --no-rebuild          Skip cmake rebuild"
     echo "  --timer               Enable timing output"
@@ -62,6 +65,16 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
 
+        --demo)
+            DEMO=1
+            shift
+            ;;
+
+        --no-demo)
+            DEMO=0
+            shift
+            ;;
+
         --noclean)
             NOCLEAN=1
             shift
@@ -96,11 +109,39 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ -z "$MTG_RAW_DIR" ]]; then
-    echo "Error: MTG_RAW_DIR is not set."
-    echo "Set it with, for example:"
-    echo "  export MTG_RAW_DIR=/path/to/MTG_data"
-    exit 1
+# Check for ref time 
+# In demo mode, the time is fixed, so the user should not pass a time
+if [[ "$DEMO" -eq 1 ]]; then
+
+    if [[ -n "$REF_TIME" ]]; then
+        echo "Error: --ref-time cannot be used in demo mode."
+        echo "The demo data always uses 23/08/2026 13:00 UTC."
+        echo "Do not pass a --ref-time in demo mode."
+        exit 1
+    fi
+
+    REF_TIME="2026-08-23 13:00"
+
+else
+
+    if [[ -z "$REF_TIME" ]]; then
+        echo "Error: --ref-time must be specified when not in demo mode."
+        exit 1
+    fi
+
+fi
+
+# MTG raw directory must be supplied if not in demo mode
+if [[ "$DEMO" -eq 1 ]]; then
+    MTG_RAW_DIR="${ROOT}/test_data"
+else
+    if [[ -z "$MTG_RAW_DIR" ]]; then
+        echo "Error: MTG_RAW_DIR is not set."
+        echo "Set it with, for example:"
+        echo "  export MTG_RAW_DIR=/path/to/MTG_data"
+        echo " or else run specMAGIC in demo mode."
+        exit 1
+    fi
 fi
 
 ## Parse time of interest
@@ -108,8 +149,14 @@ ymd=$(date +"%Y%m%d" --date="$REF_TIME")
 hh=$(date +"%H" --date="$REF_TIME")
 mm=$(date +"%M" --date="$REF_TIME")
 
-echo " ------------------------------------------------------------------ "
-echo "Preparing MTG data for UTC time $(date +"%d/%m/%Y %H:%M" --date="$REF_TIME") ($REF_TIME)..."
+
+
+if [[ "$DEMO" -eq 1 ]]; then
+
+    echo "Extracting demo data..."
+    uv run python "${ROOT}/py_utils/extract.py" "$MTG_RAW_DIR" || { echo "Failed to extract demo data!!" >&2; exit 1;}
+
+fi
 
 ## Output locations
 MTG_READY_DIR="${ROOT}/MTG_handled"
@@ -136,6 +183,9 @@ cycle=$(( 10#$hh * 6 + 10#$mm / 10 ))
 export HDF5_USE_FILE_LOCKING=FALSE
 export HDF5_PLUGIN_PATH="$(uv run python -c 'import hdf5plugin; print(hdf5plugin.PLUGINS_PATH)')"
 export CHATTY="$VERBOSE"
+
+echo " ------------------------------------------------------------------ "
+echo "Preparing MTG data for UTC time $(date +"%d/%m/%Y %H:%M" --date="$REF_TIME") ($REF_TIME)..."
 
 ## Preprocess
 uv run python "$ROOT/py_utils/preprocessMTG.py" "$ymd" "$cycle" "$CHANNEL" "$MTG_RAW_DIR" "$MTG_READY_DIR" "$FIGS_DIR" \
@@ -168,8 +218,7 @@ echo "Calling magic..."
 
 
 ## Post-process plots
-uv run python "$ROOT/py_utils/post.py" "$OUTPATH" "$FIGS_DIR" \
-    || { echo "Failed to post-process MTG data!!" >&2; exit 1; }
+uv run python "$ROOT/py_utils/post.py" "$OUTPATH" "$FIGS_DIR" || { echo "Failed to post-process MTG data!!" >&2; exit 1; }
 
 echo "Done! Thanks for now."
 echo " ------------------------------------------------------------------ "

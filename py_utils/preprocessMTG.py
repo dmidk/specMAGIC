@@ -33,7 +33,7 @@ if (chatty):
     print(" I am looking for files with date", date, "and cycle number", cycle, "...")
 
 # files always have this funky name structure
-pattern = (data_dir + "/W_XX-EUMETSAT-Darmstadt,IMG+SAT,MTI1+FCI-1C-RRAD-FDHSI-FD--CHK-BODY-*_EUMT_*_OPE_"
+pattern = (data_dir + "/W_XX-EUMETSAT-Darmstadt,IMG+SAT,MTI1+FCI-1C-RRAD-*-FD--CHK-BODY-*_EUMT_*_OPE_"
     + str(date) + "*N_*_O_0*" + str(cycle) + "_*.nc")
 
 lat_min = 40 

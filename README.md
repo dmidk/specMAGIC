@@ -23,31 +23,23 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 This code is assuming the presence of input satellite data. Currently, only Meteosat Third Generation (MTG) is supported, but support for other satellites is forthcoming. The user must provide a file path to available satellite data. 
 
-## To run the code with MTG data
+## To run the code in demo mode
 
 ```bash
 uv sync
 ```
 will set up the python environment and necessary plugins. 
 
-The driver script, which pre-processes the MTG data, calls the SpecMAGIC code, and does some small postprocessing, is called `mtg.sh`.
-
-First, export the path to the raw MTG satellite data 
+The driver script, which pre-processes the MTG data, calls the SpecMAGIC code, and does some small postprocessing, is called `mtg.sh`. By default, it runs in demo mode, using the data that comes pre-packaged in the `test_data` directory. These test data originate from EUMETSAT Meteosat products published in 2026. The single `.zip` file corresponds to a single level 1c satellite image taken by MTG/FCI on the 23rd August 2026 at 13:00 UTC. These exist under a CC-BY-4.0 free license; for details, please [the EUMETSAT website.](https://user.eumetsat.int/catalogue/EO:EUM:DAT:0989)
 
 ```bash
-export MTG_RAW_DIR='path/to/data/archive'
-```
-
-To run the code for one timestep
-
-```bash
-./scripts/mtg.sh --ref-time "Yesterday 08:00"
+./scripts/mtg.sh
 ```
 
 The default MTG channel is `vis_06`, which is 640 nm. Other channels can be specified using `--channel`, e.g. 
 
 ```bash
-./scripts/mtg.sh --ref-time "Today 09:00" --channel "nir_13"
+./scripts/mtg.sh --channel "nir_13"
 ```
 
 To see a full list of input options, 
@@ -55,10 +47,30 @@ To see a full list of input options,
 ```bash
 ./scripts/mtg.sh -h
 ```
+Figures will appear in the `/figs` directory. By default, plots of GHI, DNI, CAL (cloud index) and CSR (clear-sky radiance) are produced. 
 
-If no time is specified, "Yesterday 08:00" will be used as a default. 
+## To run the code with other MTG data 
 
-Figures will appear in the `/figs` directory. By default, plots of GHI, DNI, CAL (cloud index) and CSR (clear-sky GHI) are produced. 
+As above, 
+```bash
+uv sync
+```
+will set up the python environment and necessary plugins. 
+
+For the user to run specMAGIC for dates/times other than that supplied in the demo, the user must supply their own data as well as a date and time of interest. The program will then search for `*.nc` files matching the basic EUMETSAT file name convention using that specified date and time. 
+
+First, specify the path to the level 1c MTG satellite data 
+
+```bash
+export MTG_RAW_DIR='path/to/data/archive'
+```
+
+Then call the code with a timestamp specified
+
+```bash
+./scripts/mtg.sh --ref-time "Yesterday 08:00"
+```
+
 
 ## Configuring SpecMAGIC
 
