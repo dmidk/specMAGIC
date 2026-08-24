@@ -178,26 +178,78 @@ namespace Reflectivity {
 
     }
 
+    MAGIC_REAL getBestKatoSurfaceAlbedo(
+       Climate& climatologies,
+       Area a,
+       GroundAlbedo& alb,
+       const ModisBrdf::ModisBrdfAlbedo& modis,
+       int band,
+       MAGIC_REAL cos_sza,
+       MAGIC_REAL fallback_correction
+   ) {
+        MAGIC_REAL modis_albedo = modis.getKatoAlbedo(band, a, cos_sza);
+
+        if (modis_albedo >= (MAGIC_REAL)0 && modis_albedo <= (MAGIC_REAL)1) {
+            return modis_albedo;
+        }
+
+        return getSurfaceAlbedo(climatologies, a, alb, band) * fallback_correction;
+    }
+
+    MAGIC_REAL getBestSatelliteSurfaceAlbedo(
+        Climate& climatologies,
+        Area a,
+        GroundAlbedo& alb,
+        const ModisBrdf::ModisBrdfAlbedo& modis,
+        double wavelength_nm,
+        MAGIC_REAL cos_sza,
+        MAGIC_REAL fallback_correction
+    ) {
+        MAGIC_REAL modis_albedo = modis.getSatelliteAlbedo(wavelength_nm, a, cos_sza);
+
+        if (modis_albedo >= (MAGIC_REAL)0 && modis_albedo <= (MAGIC_REAL)1) {
+            return modis_albedo;
+        }
+
+        int band = Reflectivity::wavelengthToKatoBand(wavelength_nm);
+        band--;
+
+        return getSurfaceAlbedo(climatologies, a, alb, band) * fallback_correction;
+    }
+
   
 }
 
 // Big monster func to calculate CAL for this pixel
-MAGIC_REAL effectiveCloudAlbedo(Image& img, SolarParameters sun, Climate& climatologies, 
-     GroundAlbedo& alb, Area a, PixelClimate& clim, int line, int col) {
+MAGIC_REAL effectiveCloudAlbedo(
+    Image& img,
+    SolarParameters sun,
+    Climate& climatologies,
+    GroundAlbedo& alb,
+    const ModisBrdf::ModisBrdfAlbedo& modis,
+    Area a,
+    PixelClimate& clim,
+    int line,
+    int col
+) {
 
     MAGIC_REAL Rmax = 3500;
 
     // Radiance, scaled by angle
     MAGIC_REAL radi = (static_cast<MAGIC_REAL>(img.im.at(line, col)) - (MAGIC_REAL) DARK_OFFSET) / sun.corrected_cos_sza;
 
-    int band = Reflectivity::wavelengthToKatoBand(img.info.wavelength);
-    // For zero-indexing
-    band--;
-
-    MAGIC_REAL albedo = Reflectivity::getSurfaceAlbedo(climatologies, a, alb, band);
+    MAGIC_REAL albedo = Reflectivity::getBestSatelliteSurfaceAlbedo(
+            climatologies,
+            a,
+            alb,
+            modis,
+            img.info.wavelength,
+            sun.cos_sza,
+            clim.albedo_correction
+        );
 
     MAGIC_REAL Rmin = 0;
-    Rmin = (MAGIC_REAL) 1.1 * Rmax * (albedo * clim.albedo_correction + (MAGIC_REAL) 0.05);
+    Rmin = (MAGIC_REAL) 1.1 * Rmax * (albedo + (MAGIC_REAL) 0.05);
 
     MAGIC_REAL CAL_continuous = Reflectivity::cloudIndex(radi, Rmin, Rmax);
 

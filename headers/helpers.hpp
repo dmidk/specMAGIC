@@ -9,6 +9,7 @@ struct Config {
     std::string lambda_cor, cloud_list;
     std::string out_global_path, out_beam_path, out_cal_path, out_clear_path;
     std::string gr_alb_file;
+    std::string modis_brdf_dir;
     std::string path;
 
     int xadim{}, yadim{}, xhdim{}, yhdim{}, xo3dim{}, yo3dim{};
@@ -16,6 +17,7 @@ struct Config {
     int latdim{}, londim{};
     float latbegin{}, lonbegin{}, dxy{}, deltalon{}, iconres{};
     int iconflag{};
+    int use_modis_brdf_albedo{0};
 
  
 };

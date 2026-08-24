@@ -16,7 +16,8 @@ file(GLOB_RECURSE SRC_FILES
     ${CMAKE_SOURCE_DIR}/headers/*.hpp
 )
 
-add_executable(magic ${SRC_FILES})
+add_executable(magic ${SRC_FILES}
+        headers/modis_brdf.hpp)
 
 # Should work for both windows and linux, we hope...
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")

@@ -16,6 +16,8 @@
 #include "../headers/satellite.hpp"
 #include "../headers/sun_geometry.hpp"
 #include "../headers/reflectivity.hpp"
+#include "../headers/modis_brdf.hpp"
+
 
 using namespace Tables;
 
@@ -42,6 +44,7 @@ int main(int argc, char* argv[]) {
     std::string home = argv[1];
     std::string channel = argv[2];     // the mtg channel 
     bool timer = std::stoi(argv[3]) != 0;
+    bool verbose = std::stoi(argv[4]) != 0;
     
     // Get setup from the configuration file
     Config c = loadConfig("magic-config.asc", home);
@@ -71,6 +74,10 @@ int main(int argc, char* argv[]) {
 
     // Read climatologies
     Climate climatologies = Climate(c, img.timestamp.month);
+
+    // Read MODIS BRDF albedo, if enabled
+    ModisBrdf::ModisBrdfAlbedo modis;
+    modis.load(c, img.timestamp.month);
 
     // Global coords across ENTIRE image
     Geography geo = Geography(c.latdim, c.londim);
@@ -113,6 +120,14 @@ int main(int argc, char* argv[]) {
             Area a;
             a.makeArea(geo, pix, c.deltalon);
 
+            // Choose a pixel to give some output
+            bool talk = verbose && a.nlat == 1000 && a.nlon == 1000;
+
+            if (talk) printf("I am doing some printouts for one given pixel...\n");
+
+            if (talk) printf("I have lat, lon [%f %f] rads and [%f %f] degrees, nlon %d and nlat %d. \n", 
+                    a.lat, a.lon, a.degrees_lat, a.degrees_lon, a.nlon, a.nlat);
+
             // Get the pixel position in line and columns
             int col, lin;
             Satellite::geo2MTGImage(a.lat, a.lon, img.info.nav_cres, (img.info.column_offset + NAV_CORRECTION_COLOFFSET), 
@@ -125,8 +140,12 @@ int main(int argc, char* argv[]) {
             MAGIC_EXACT UTC_time = Satellite::calcObsTime(img.timestamp.hour, img.timestamp.minute, 
                 line, img.info.num_lines);
 
+            if (talk) printf("I got line %d and numlines %d \n", line, img.info.num_lines);
+
             // Calculate all the other sun geometry things
             SolarParameters sun = SunGeometry::solarParameters(img.timestamp, UTC_time, a);
+
+            if (talk) printf("Found subsolar longitude %f, time %g and sun declination %g \n", sun.subsolar_lon, UTC_time, sun.declination);
 
             // Distance to subsatellite point 
             MAGIC_EXACT nadir = sqrt(pow(a.lat, 2) + pow((a.lon - a.deltalon_rad), 2));
@@ -175,7 +194,7 @@ int main(int argc, char* argv[]) {
 
                     // Put this pixel's climatology information into 
                     // the PixelClimate object
-                    climatologies.makeLocalClimate(clim, a);
+                    climatologies.makeLocalClimate(clim, a, talk);
 
                     // Add the albedo correction
                     Reflectivity::makeAlbedoCorrection(climatologies, clim, a, sun.cos_sza);
@@ -185,7 +204,10 @@ int main(int argc, char* argv[]) {
     
                     // Calculate the CAL for this pixel
                     MAGIC_REAL cal = effectiveCloudAlbedo(img, sun, climatologies, alb,
-                        a, clim, line, col);
+                        modis, a, clim, line, col);
+
+
+                    if (talk) printf("This pixel found cal %f \n", cal);
                     
                     // Put the CAL into the radiation matrix
                     radiation.encodeCAL(cal, a);
@@ -196,8 +218,22 @@ int main(int argc, char* argv[]) {
                     MAGIC_REAL CSR = 0;
                     for (int band = KATO_MIN; band < KATO_MAX; band++) {
 
+                        bool chatty = false; 
+                        if (talk && band == 2) chatty = true;
+
                         // Calculate surface albedo at this point
-                        clim.surface_albedo = static_cast<MAGIC_EXACT>( Reflectivity::getSurfaceAlbedo(climatologies, a, alb, band) ) * clim.albedo_correction;
+                        // Prefer MODIS BRDF albedo if available, otherwise use old land-use albedo.
+                        clim.surface_albedo = static_cast<MAGIC_EXACT>(
+                            Reflectivity::getBestKatoSurfaceAlbedo(
+                                climatologies,
+                                a,
+                                alb,
+                                modis,
+                                band,
+                                sun.cos_sza,
+                                clim.albedo_correction
+                            )
+                        );
 
                         // Calculate the clear-sky ghi at this pixel
                         sc.GHI_spectral[band] = magic(monster, water, ozone, IrradianceMode::Global, band, 
@@ -206,6 +242,8 @@ int main(int argc, char* argv[]) {
                         // Calculate the clear-sky DNI at this pixel
                         sc.DNI_spectral[band] = magic(monster, water, ozone, IrradianceMode::Beam, band, 
                             sun.cos_sza, sun.distance, clim);
+
+                        if (chatty) printf("Got G %g and B %g!\n", sc.GHI_spectral[band], sc.DNI_spectral[band]);
 
                         // Get the clearsky value BEFORE cloudysky corrections
                         CSR += sc.GHI_spectral[band];
@@ -239,6 +277,9 @@ int main(int argc, char* argv[]) {
                         DNI += sc.DNI_spectral[idx];
 
                     }
+
+                    if (talk) printf("Got final G %g (%d) and final B %g (%d) and corrected angle %g\n", 
+                        GHI, static_cast<short>(std::lround(GHI)), DNI, static_cast<short>(std::lround(DNI)), sun.corrected_cos_sza);
 
                     // Put these values in the matrices
                     radiation.encodeGHI(GHI, a);

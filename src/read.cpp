@@ -106,6 +106,9 @@ Config loadConfig(const std::string& path_to_config, const std::string& path_to_
 
   c.landuse_image  = r.next_value();
 
+  c.use_modis_brdf_albedo = parse_int(r.next_value(), "use_modis_brdf_albedo", r.line_no());
+  c.modis_brdf_dir = r.next_value();
+
   c.clut_spec      = r.next_value();
   c.clut_spec_h2o  = r.next_value();
   c.clut_spec_o3   = r.next_value();
@@ -138,6 +141,9 @@ Config loadConfig(const std::string& path_to_config, const std::string& path_to_
   // Idiot checks
   if (c.xadim <= 0 || c.yadim <= 0) throw std::runtime_error("Invalid aerosol dimensions");
   if (c.latdim <= 0 || c.londim <= 0) throw std::runtime_error("Invalid grid dimensions");
+  if (c.use_modis_brdf_albedo != 0 && c.use_modis_brdf_albedo != 1) {
+    throw std::runtime_error("Invalid MODIS BRDF albedo flag; expected 0 or 1");
+  }
 
   return c;
 }

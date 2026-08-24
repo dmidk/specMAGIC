@@ -64,3 +64,26 @@ The SpecMAGIC config is found in `root/magic-config.asc`. Here also is a short o
 
 
 
+## MODIS BRDF albedo maps
+
+This section explains how to upgrade from coarse land-use maps to MODIS hi-res land albedo maps for the clearsky calculation.
+
+The MODIS BRDF NetCDF files are large and are not stored in Git.
+
+Download them with:
+```
+bash uv run python py_utils/download_MODIS_maps.py climatologies/modis-brdf
+``` 
+
+
+On DMI systems, the files will already be available at:
+
+``` 
+/dmidata/projects/energivejr-data/modis
+``` 
+
+
+In that case, create a local symlink from the project root:
+```
+ln -s /dmidata/projects/energivejr-data/modis climatologies/modis-brdf
+```
