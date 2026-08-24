@@ -75,15 +75,8 @@ Download them with:
 bash uv run python py_utils/download_MODIS_maps.py climatologies/modis-brdf
 ``` 
 
+If you have access to a pre-downloaded copy of the MODIS BRDF files, you can instead create a local symlink from the project root pointing to that location:
 
-On DMI systems, the files will already be available at:
-
-``` 
-/dmidata/projects/energivejr-data/modis
-``` 
-
-
-In that case, create a local symlink from the project root:
 ```
-ln -s /dmidata/projects/energivejr-data/modis climatologies/modis-brdf
+ln -s /path/to/shared/modis climatologies/modis-brdf
 ```
