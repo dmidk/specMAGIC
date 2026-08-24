@@ -4,8 +4,10 @@
 
 The SpecMAGIC code has been developed by Richard Müller, Uwe Pfeifroth and Elloise Fangel-Lloyd. Input data and climatologies are provided by Richard Müller.
 
-Annette Hammer and Axel Kemper contributed during their time at the University of Oldenburg
-to the development of the concepts of the methods and code.
+Annette Hammer and Axel Kemper contributed during their time at the University of Oldenburg to the development of the concepts of the methods and code. Tanja Behrendt contributed to the evaluation of SPECMAGIC and supported the project with her knowledge about the physics of spectral resolved irradiance.
+
+The 2012 version of SPECMAGIC is described in
+Mueller, R.; Behrendt, T.; Hammer, A.; Kemper, A. [A New Algorithm for the Satellite-Based Retrieval of Solar Surface Irradiance in Spectral Bands](https://doi.org/10.3390/rs4030622).
 
 ## Preparing to run
 
