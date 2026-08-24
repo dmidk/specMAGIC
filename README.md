@@ -19,6 +19,19 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 [Please see the uv docs for more information.](https://docs.astral.sh/uv/)
 
+This repository uses Git Large File Storage (Git LFS) to store the demo test data. Without it, the test data .zip will not be downloaded correctly and the demo will fail with a BadZipFile error. Install Git LFS for your platform:
+
+```bash
+sudo apt install git-lfs
+```
+
+Then initialize it and pull the test data:
+```bash
+git lfs install
+git lfs pull
+```
+
+
 ## Input data
 
 This code is assuming the presence of input satellite data. Currently, only Meteosat Third Generation (MTG) is supported, but support for other satellites is forthcoming. The user must provide a file path to available satellite data. 
