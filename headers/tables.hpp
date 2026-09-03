@@ -81,6 +81,15 @@ namespace Tables {
                 return 0.0;
             }
 
+            // Callers derive the band from a wavelength, and
+            // Reflectivity::wavelengthToKatoBand signals an unrecognised wavelength
+            // by returning -1, which becomes -2 once decremented to a zero-based
+            // index. Guard the band as we guard the land class.
+            if (band < 0 || band >= bands) {
+                printf("Invalid albedo band index! %d\n", band);
+                return 0.0;
+            }
+
             return a[land][band];
         }
 
