@@ -79,8 +79,31 @@ namespace magicHelpers {
             return (1.0f - w) * table[khi][band] + w * table[klo][band];
         }
 
-        printf("[MAGIC] WARNING: Dodgy interpolation in Absorber calculation. Quality may be degraded.\n");
-        return -1000.0f;
+        // The requested concentration lies outside the LUT's axis, so there is
+        // nothing to interpolate between.
+        //
+        // This is a known limitation of the ozone pair rather than a corrupt input.
+        // o3corr-l.lut has a floor of 210 DU, but the ERA-Interim climatology reaches
+        // 157 DU over the Antarctic ozone hole in September and October. The limb
+        // test in calcPixelValidity discards anything more than 1.2 rad from the
+        // sub-satellite point, which excludes almost all of it; what remains
+        // reachable is roughly 66-68 S within about 20 degrees of the sub-satellite
+        // longitude, in those two months only. The shipped config starts the grid at
+        // the equator and so never enters it. Moving latbegin south of about -66
+        // does.
+        //
+        // This used to return -1000 as a sentinel. absorberCorrection multiplied it
+        // by a cos(sza) power and magic() added it to the band irradiance, which the
+        // trailing "if (Gmlbmc < 0) Gmlbmc = 0" clamp then turned into a clean zero
+        // for every band -- output indistinguishable from a night pixel. Failing
+        // loudly is better than a plausible wrong answer. Fixing it properly means
+        // extending the LUT downward, or clamping the concentration to the axis and
+        // accepting a bounded error in the correction term.
+        throw std::runtime_error(
+            "interpolate: absorber concentration " + std::to_string(x) +
+            " is outside the LUT axis [" + std::to_string(axis[0]) + ", " +
+            std::to_string(axis[lut.nrows - 1]) +
+            "]; see the comment at this throw for the known ozone/latitude case");
     }
 
 
