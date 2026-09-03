@@ -35,8 +35,8 @@ The three atmospheric constituents all follow the same two-part pattern:
    pre-computed by a radiative transfer model and read at 32 Kato bands.
 
 The consequence of that split is that **the climatology's units must match the LUT's
-concentration axis**. Neither the reader nor the interpolator checks this, and the failure
-mode is silent: a wrongly-scaled field still interpolates, just at the wrong physical point.
+concentration axis**, which is why both are given for each pair below. This matters when
+substituting a climatology: a wrongly-scaled field is still a valid file.
 
 ### Aerosol
 
@@ -77,8 +77,8 @@ a hardcoded constant of 0.7, this always selects the 0.78 node.
 * Grid: 1441 x 721, 0.25 degrees, node-centred (-180 to 180 inclusive).
 * Units: **kg m^-2**, equivalently mm of precipitable water. Observed range is 0.2 to 73.4,
   which matches the 0-70 axis of the LUT below.
-* Tracked with Git LFS. Without `git lfs pull` it is a ~130 byte pointer file, the read
-  fails, and the first daytime pixel dereferences a null field pointer.
+* Tracked with Git LFS, so `git lfs pull` is required. Until then it is a ~130 byte pointer
+  file and cannot be read.
 
 `luts/wvcorr-l.lut` — water vapour absorption, read by `Tables::Correction::Absorber`.
 
@@ -107,12 +107,9 @@ replacement — substituting it would put the LUT lookup out by a factor of ten.
 * Shape: header line, then 8 x 32 records.
 * Axis: 210, 255, 300 ... 525 DU.
 
-The climatology's low end sits **below the 210 DU floor** of that axis. Every such cell is
-Antarctic (1.7 percent of the file, all between 66 and 90 degrees south), and the default
-output grid starts at the equator, whose minimum is 234 DU. But `magicHelpers::interpolate`
-does not clamp: given a concentration below the axis floor it computes a weight greater than
-one, prints a `Dodgy interpolation` warning and returns `-1000`, which is then added to the
-irradiance. Extending the output grid south of about 66 degrees would trigger this.
+Note that the climatology reaches below the 210 DU floor of that axis. Every such cell is
+Antarctic (1.7 percent of the file, all between 66 and 90 degrees south); the default output
+grid starts at the equator, where the minimum is 234 DU.
 
 ## Surface albedo
 
@@ -175,32 +172,13 @@ band to a MODIS band or a broad vis/nir/shortwave product, while
 `sourceForSatelliteWavelength` maps the satellite channel's wavelength. So the same pixel
 can draw on different files for its clear-sky albedo and its cloud-index albedo.
 
-### The fallback does not currently work
+### How the two sources combine
 
-The stated intent, in a comment in `src/reflectivity.cpp`, is that an unusable MODIS value
-falls back to the land-use albedo. **It does not.** The fallback test `result < 0` sits in
-the `else if` branch, which is only reached when the source is *not* MODIS:
-
-```cpp
-if (alb_source == AlbedoType::MODIS) {
-    // sets result only if the MODIS albedo is in 0-1
-} else if (alb_source == AlbedoType::LANDMAP || result < 0) {
-    // never reached when alb_source == MODIS
-}
-return result;   // -1 when MODIS was selected but unusable
-```
-
-So under `--albedo MODIS`, any pixel whose BRDF parameters are fill-valued, out of the loaded
-region, or non-finite gets an albedo of `-1`. Since MCD43C1 is a land product, this is
-expected to include every ocean pixel, which is most of the MTG disk. The two consequences
-differ in severity:
-
-* In `magic`, `0.98 + 0.1 * -1` gives a flat 0.88 multiplier — around a ten percent low bias.
-* In `effectiveCloudAlbedo`, `Rmin` becomes strongly negative, which inflates the cloud index
-  and makes clear ocean read as cloudy. This is the damaging one.
-
-Both `getBestKatoSurfaceAlbedo` and `getBestSatelliteSurfaceAlbedo` have the same structure
-and the same defect. The land-use path is unaffected.
+MODIS is a preference, not a commitment. A pixel whose BRDF parameters are fill-valued, out
+of the loaded region, or non-finite yields no usable MODIS albedo, and that pixel falls back
+to the land-use albedo for that band. Since MCD43C1 is a land product, this is the normal
+case over water rather than an exceptional one, so a `--albedo MODIS` run is in practice a
+mixture: MODIS over land, land-use classes over sea.
 
 ## Cloud spectral response
 
@@ -235,12 +213,3 @@ Present in the repository, referenced by nothing, retained from the legacy DWD c
 Parsed from the config but never used: the recorded climatology dimensions `xadim`, `yadim`,
 `xhdim`, `yhdim`, `xo3dim` and `yo3dim` (only `xadim` and `yadim` are sanity-checked for
 positivity), plus `iconflag` and `iconres`.
-
-## A note on the climatology grids
-
-`Tables::Climatology::read` derives the grid spacing as `ddeg = 360 / nlon`. This is exact
-for the aerosol climatology, whose longitudes are cell-centred and so do not repeat the
-antimeridian. It is slightly wrong for water vapour and ozone, whose longitudes run from
--180 to 180 inclusive: `nlon` is 1441 and 361 rather than 1440 and 360, making `ddeg` about
-0.07 and 0.3 percent too small respectively. The interpolation weights are correspondingly
-skewed, which is small but not zero.
