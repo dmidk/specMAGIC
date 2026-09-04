@@ -11,7 +11,7 @@ Mueller, R.; Behrendt, T.; Hammer, A.; Kemper, A. [A New Algorithm for the Satel
 
 ## Requirements
 
-- A Linux installation (the code may function for Mac users, but no guarantees are given at this stage)  
+- A Linux installation 
 - CMake >= 3.16
 - C++ >= 17
 - A uv installation, for dependency management. [Please see the uv docs for more information.](https://docs.astral.sh/uv/)
