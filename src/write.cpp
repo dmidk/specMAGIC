@@ -1,5 +1,14 @@
 #include "../headers/write.hpp"
 
+namespace {
+
+const char* unitsForVariable(const std::string& name) {
+    if (name == "CAL") return "%";
+    return "W m-2";
+}
+
+}
+
 std::string makeFilename(DateTime& timestamp,  std::string& variable_name, std::string& out_path) {
  
     std::ostringstream oss;
@@ -57,7 +66,8 @@ int writeToNetcdf(const std::string& filename,
                              std::strlen(time_units), time_units));
     NC_CHECK(nc_put_att_text(ncid, lat_var, "units", 13, "degrees_north"));
     NC_CHECK(nc_put_att_text(ncid, lon_var, "units", 12, "defgrees_east"));
-    NC_CHECK(nc_put_att_text(ncid, matrix_var, "units", 6, "W m-2"));
+    const char* units = unitsForVariable(name);
+    NC_CHECK(nc_put_att_text(ncid, matrix_var, "units", std::strlen(units), units));
 
     MAGIC_INT fill = static_cast<MAGIC_INT>(-1);
     NC_CHECK(nc_put_att_magic_int(ncid, matrix_var, "_FillValue", &fill));
