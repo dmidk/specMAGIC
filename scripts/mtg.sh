@@ -225,9 +225,9 @@ echo "Finished pre-processing MTG data."
 
 ## Build list of handled data files
 cd "$MTG_READY_DIR"
-filename="/fill-${CHANNEL}-${ymd}*.nc"
+filename="/fill-${CHANNEL}-${ymd}*${cycle}.nc"
 rm -f "$ROOT/image_list.txt"
-ls $MTG_READY_DIR$filename > "$ROOT/image_list.txt"
+ls -t $MTG_READY_DIR$filename > "$ROOT/image_list.txt"
 cd "$ROOT"
 
 ## Build C++ only if requested
