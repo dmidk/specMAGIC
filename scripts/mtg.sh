@@ -81,7 +81,7 @@ while [[ $# -gt 0 ]]; do
             ;;
 
         --no-demo)
-            DEMO            WHOLE_DOMAIN=1=0
+            DEMO=0
             shift
             ;;
 
