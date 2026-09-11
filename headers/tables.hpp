@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <algorithm>
 #include <cstddef>
+#include <cmath>
 #include <iostream>
 #include "types.hpp"
 #include "constants.hpp"
@@ -664,7 +665,6 @@ namespace Tables {
             }
 
             nlon = total_rows / nlat;
-            ddeg = 360.0 / static_cast<MAGIC_EXACT>(nlon);
 
             lon = new MAGIC_EXACT[nlon];
             lat = new MAGIC_EXACT[nlat];
@@ -704,6 +704,36 @@ namespace Tables {
                         MAGIC_EXACT dummy;
                         in >> dummy;
                     }
+                }
+            }
+
+            // Derive the grid spacing from the axis we just read, rather than
+            // assuming the longitudes tile a full 360 degrees.
+            //
+            // That assumption only holds for cell-centred grids. The water vapour
+            // and ozone climatologies are node-centred and repeat the antimeridian
+            // (-180 and +180 are both present), so nlon is one greater than the
+            // number of cells and 360 / nlon understates the spacing -- by 0.07%
+            // for water vapour and 0.3% for ozone, which skews every interpolation
+            // weight in interpolate().
+            if (nlon > 1) {
+                ddeg = std::fabs(lon[nlon - 1] - lon[0])
+                     / static_cast<MAGIC_EXACT>(nlon - 1);
+            } else {
+                ddeg = 360.0;
+            }
+
+            // interpolate() applies the same ddeg to both axes, so a file whose
+            // latitude spacing differs from its longitude spacing would be
+            // silently mis-weighted. None of the shipped climatologies do.
+            if (nlat > 1) {
+                const MAGIC_EXACT dlat = std::fabs(lat[nlat - 1] - lat[0])
+                                       / static_cast<MAGIC_EXACT>(nlat - 1);
+
+                if (std::fabs(dlat - ddeg) > 1e-6 * ddeg) {
+                    std::printf("WARNING: climatology %s has unequal lat/lon spacing "
+                                "(%g vs %g); interpolation assumes they match\n",
+                                filepath.c_str(), dlat, ddeg);
                 }
             }
 
