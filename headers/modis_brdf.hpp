@@ -167,7 +167,7 @@ namespace ModisBrdf {
 
         ModisBrdfAlbedo() = default;
 
-        void load(Config c, int month, AlbedoType albedo_source) {
+        void load(Config c, MAGIC_REAL satellite_longitude_deg, int month, AlbedoType albedo_source) {
 
             bool enabled = albedo_source == AlbedoType::MODIS;
 
@@ -184,7 +184,7 @@ namespace ModisBrdf {
                 return;
             }
 
-            defineRegion(c);
+            defineRegion(c, satellite_longitude_deg);
 
             for (int s = 0; s < SourceCount; s++) {
                 Source source = static_cast<Source>(s);
@@ -226,8 +226,8 @@ namespace ModisBrdf {
         }
 
     private:
-        void defineRegion(Config c) {
-            MAGIC_REAL region_lon_min = c.lonbegin + c.deltalon;
+        void defineRegion(Config c, MAGIC_REAL satellite_longitude_deg) {
+            MAGIC_REAL region_lon_min = c.lonbegin + satellite_longitude_deg;
             MAGIC_REAL region_lon_max = region_lon_min + c.dxy * (c.londim - 1);
             MAGIC_REAL region_lat_min = c.latbegin;
             MAGIC_REAL region_lat_max = c.latbegin + c.dxy * (c.latdim - 1);

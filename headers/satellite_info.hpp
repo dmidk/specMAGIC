@@ -21,6 +21,7 @@ struct Metadata {
     int resolution; // in metres!
 
     MAGIC_EXACT satellite_radius_km;
+    MAGIC_EXACT subsatellite_longitude_deg;
     MAGIC_EXACT full_disk_scan_min;
 
     // Selected sampling angle for this run
@@ -64,6 +65,15 @@ inline Metadata loadMetadata(const std::string& channel){
 
     // put the toml values into the metadata struct
     metadata.satellite_radius_km = config["navigation"]["satellite_radius_km"].value_or(0.0);
+    {
+        auto parsed_lon = config["navigation"]["subsatellite_longitude_deg"].value<MAGIC_EXACT>();
+        if (!parsed_lon) {
+            throw std::runtime_error(
+                "Missing required key 'navigation.subsatellite_longitude_deg' in " +
+                config_path.string());
+        }
+        metadata.subsatellite_longitude_deg = *parsed_lon;
+    }
     metadata.full_disk_scan_min = config["navigation"]["full_disk_scan_min"].value_or(0.0);
     
     metadata.flip_horizontal = config["orientation"]["flip_horizontal"].value_or(false);
