@@ -3,6 +3,7 @@ name = "MTG"
 
 [navigation]
 satellite_radius_km = 42164.0
+subsatellite_longitude_deg = 0.0
 full_disk_scan_min = 10.0
 
 [orientation]

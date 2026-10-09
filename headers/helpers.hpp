@@ -35,7 +35,7 @@ struct Config {
     int xadim{}, yadim{}, xhdim{}, yhdim{}, xo3dim{}, yo3dim{};
     int ggdim{}, ssadim{}, aoddim{}, h2odim{}, o3dim{}, num_bands{};
     int latdim{}, londim{};
-    float latbegin{}, lonbegin{}, dxy{}, deltalon{}, iconres{};
+    float latbegin{}, lonbegin{}, dxy{}, iconres{};
     int iconflag{};
 
  

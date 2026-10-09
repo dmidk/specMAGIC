@@ -57,6 +57,7 @@ int main(int argc, char* argv[]) {
     Image img;
     img.initfromFile(c.path+c.cloud_list);
     img.readImage(channel);
+    const MAGIC_EXACT satellite_longitude_deg = img.info.subsatellite_longitude_deg;
 
     // ------ Read lookup tables ---------
     AlbedoType albedo_source = parseAlbedoSource();
@@ -67,7 +68,7 @@ int main(int argc, char* argv[]) {
     ModisBrdf::ModisBrdfAlbedo modis;
     // Empty if MODIS is not enabled
     if (albedo_source == AlbedoType::MODIS) {
-        modis.load(c, img.timestamp.month, albedo_source);
+        modis.load(c, satellite_longitude_deg, img.timestamp.month, albedo_source);
     }
 
     // For the cloudy sky correction
@@ -90,7 +91,7 @@ int main(int argc, char* argv[]) {
 
     // Global coords across ENTIRE image
     Geography geo = Geography(c.latdim, c.londim);
-    geo.makeCoordinates(c);
+    geo.makeCoordinates(c, satellite_longitude_deg);
 
     // Allocate the radiation matrices
     Output radiation(geo.nlat, geo.nlon);
@@ -126,11 +127,13 @@ int main(int argc, char* argv[]) {
 
             // Coordinates for this pixel only
             Area a;
-            a.makeArea(geo, pix, c.deltalon);
+            a.makeArea(geo, pix, satellite_longitude_deg);
 
             // Get the pixel position in line and columns
             unsigned int col, lin;
-            Satellite::geo2Image(a.lat, a.lon - a.deltalon_rad, img.info, col, lin);
+
+            MAGIC_EXACT lon_for_projection = a.lon - (satellite_longitude_deg / RADTODEGREE);
+            Satellite::geo2Image(a.lat, lon_for_projection, img.info, col, lin);
 
             int line = lin; int column = col;
             if (img.info.flip_vertical) line = Satellite::flipVertical(lin, img.info.num_lines);

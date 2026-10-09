@@ -117,12 +117,11 @@ struct Geography {
         return *this;
     }
 
-    void makeCoordinates(Config c) {
+    void makeCoordinates(Config c, MAGIC_EXACT satellite_longitude_deg) {
 
         MAGIC_REAL latbegin = c.latbegin;
         MAGIC_REAL lonbegin = c.lonbegin;
         MAGIC_REAL dxy = c.dxy;
-        MAGIC_REAL deltalon = c.deltalon;
 
         // Make latitude coords
         for (unsigned int l = 0; l < nlat; l++) {
@@ -131,7 +130,7 @@ struct Geography {
 
         // Make longitude coords
         for (unsigned int l = 0; l < nlon; l++) {
-            lon[l] = static_cast<MAGIC_EXACT>(lonbegin + dxy * l + deltalon);
+            lon[l] = static_cast<MAGIC_EXACT>(lonbegin + dxy * l + satellite_longitude_deg);
 
             // We want -180 to 180, not 0 to 360
             if (lon[l] > 180.) {

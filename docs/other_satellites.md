@@ -40,6 +40,7 @@ specMAGIC will extract the image size and horizontal resolution directly from th
 
 The user needs to gather the following information:
 - Satellite distance in kilometres (`satellite_radius_km`). This is the **geostationary radius**, i.e. the height of the satellite above ground plus the equatorial Earth radius.
+- Subsatellite longitude in degrees (`subsatellite_longitude_deg`) in the `[navigation]` section of the satellite TOML.
 - The list of channel names and the wavelengths they correspond to (`[channels]`)
 - Number of minutes it takes to scan the entire image (`full_disk_scan_min`)
 - The grid sampling angle in radians. For MTG this was found in the [EUMETSAT FCI level 1C user guide documentation.](https://user.eumetsat.int/resources/user-guides/mtg-fci-level-1c-data-guide) 

@@ -133,7 +133,6 @@ Config loadConfig(const std::string& path_to_config, const std::string& path_to_
   c.latbegin  = parse_float(r.next_value(), "begin of lat", r.line_no());
   c.lonbegin  = parse_float(r.next_value(), "begin of lon", r.line_no());
   c.dxy       = parse_float(r.next_value(), "dxy", r.line_no());
-  c.deltalon  = parse_float(r.next_value(), "deltalon", r.line_no());
   c.iconflag  = parse_int(r.next_value(), "iconflag", r.line_no());
   c.iconres   = parse_float(r.next_value(), "iconres", r.line_no()); // fixed value source
 
