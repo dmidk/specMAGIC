@@ -23,11 +23,10 @@ import numpy as np
 import xarray as xr
 from pyproj import CRS, Transformer
 
+from verify_zarr_inputs import check_cams, check_dini, check_lsasaf
+
 # 1 Dobson Unit of ozone in kg m-2
 DU_IN_KG_M2 = 2.1415e-5
-
-KG_M2 = ("kg m**-2", "kg m-2")
-DIMENSIONLESS = ("~", "1", "")
 
 # How far a source time may lie from the image time. The nearest available time wins,
 # and a later one is only used if it is already in the store.
@@ -124,12 +123,16 @@ def first_with_data(order, load, cached, label):
     return None, None
 
 
-def check_units(da, accepted, label):
-    units = da.attrs.get("units", "")
-    if units not in accepted:
-        problem(f"{label}: unexpected units '{units}', expected one of {accepted}")
-        return False
-    return True
+def unusable(source, path, errors):
+    """
+    Reports where an archive does not match the specification (verify_zarr_inputs.py).
+    Returns the variables that cannot be used, or None if the whole archive cannot.
+    """
+    for _, message in errors:
+        problem(f"{source}: {message} in {path}")
+    if any(var is None for var, _ in errors):
+        return None
+    return {var for var, _ in errors}
 
 
 def stamp(when):
@@ -223,20 +226,18 @@ def bilinear_points(src_y, src_x, values, y, x):
 def extract_cams(path, target, lat, lon, grid_attrs, out_dir):
     """Aerosol and ozone, plus water vapour as the backup for DINI."""
     ds = xr.open_zarr(path)
-    fields = [("aod", "aod550", DIMENSIONLESS, 1.0),
-              ("o3", "gtco3", KG_M2, 1.0 / DU_IN_KG_M2),
-              ("h2o_cams", "tcwv", KG_M2, 1.0)]
+    broken = unusable("cams", path, check_cams(ds))
+    if broken is None:
+        return []
+    fields = [("aod", "aod550", 1.0), ("o3", "gtco3", 1.0 / DU_IN_KG_M2), ("h2o_cams", "tcwv", 1.0)]
 
     times = ds.valid_time.values
     order = preferred_order(times, target, HOURLY_MAX_BEFORE, HOURLY_MAX_AFTER)
 
     results = []
-    for name, var, units, scale in fields:
+    for name, var, scale in fields:
         label = f"cams {var}"
-        if var not in ds:
-            problem(f"{label}: not in {path}")
-            continue
-        if not check_units(ds[var], units, label):
+        if var in broken:
             continue
 
         def load(i):
@@ -260,12 +261,9 @@ def extract_cams(path, target, lat, lon, grid_attrs, out_dir):
 def extract_dini(path, target, lat, lon, grid_attrs, out_dir):
     """Water vapour from the most recent DINI run valid at the chosen time."""
     ds = xr.open_zarr(path)
+    if unusable("dini", path, check_dini(ds)) != set():
+        return []
     label = "dini wvint"
-    if "wvint" not in ds:
-        problem(f"{label}: not in {path}")
-        return []
-    if not check_units(ds.wvint, KG_M2, label):
-        return []
 
     # Only transform the output points that can lie inside the DINI domain
     dini_lon = np.mod(ds.longitude.values + 180.0, 360.0) - 180.0
@@ -328,10 +326,8 @@ def extract_lsasaf(path, target, lat, lon, grid_attrs, out_dir):
     from QFLAGS, so that magic can tell normal gaps over water from missing land albedo.
     """
     ds = xr.open_zarr(path)
-    for var in ("AL-VI-DH", "AL-NI-DH", "QFLAGS", "Z_Age"):
-        if var not in ds:
-            problem(f"lsasaf: {var} not in {path}")
-            return []
+    if unusable("lsasaf", path, check_lsasaf(ds)) is None:
+        return []
 
     names = ["albedo_vis", "albedo_nir", "albedo_land"]
     times = ds.time.values

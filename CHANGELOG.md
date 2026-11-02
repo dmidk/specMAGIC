@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added 
 - Added the option to download and run with MODIS high-resolution land albedo maps, instead of the coarse landmaps available by default. [!1](https://github.com/dmidk/specMAGIC/pull/1) @irenelivia [!12](https://github.com/dmidk/specMAGIC/pull/12) @SimonKamuk
 - Added the satellite `.toml` file to avoid hardcoded satellite-specific values. [!18](https://github.com/dmidk/specMAGIC/pull/18) @ElloiseFangelLloyd @KristianHMoller
-- Added the option `--zarr-atmosphere-inputs` to take aerosol and ozone from CAMS and water vapour from DINI (then CAMS), and the albedo option `--albedo LSASAF`, for the time of the satellite image, falling back to the climatologies wherever these are missing, or stopping with `--strict-inputs`. [!34](https://github.com/dmidk/specMAGIC/pull/34) @SimonKamuk
+- Added the option `--zarr-atmosphere-inputs` to take aerosol and ozone from CAMS and water vapour from DINI (then CAMS), and the albedo option `--albedo LSASAF`, for the time of the satellite image, falling back to the climatologies wherever these are missing, or stopping with `--strict-inputs`. The archives are supplied by the user, and `py_utils/verify_zarr_inputs.py` checks their format. [!34](https://github.com/dmidk/specMAGIC/pull/34) @SimonKamuk
 
 ### Changed
 - Throw error message rather than silent failure in absorber interpolation. [!9](https://github.com/dmidk/specMAGIC/pull/9) @SimonKamuk

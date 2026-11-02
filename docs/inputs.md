@@ -258,7 +258,7 @@ against the 210-525 DU of `o3corr-l.lut`, and AOD reaches about 4.6 in dust even
 axes.
 
 **Missing inputs.** A requested input that is not available at all, because an archive cannot
-be read, a variable or its units are wrong, no time lies within the window, the archive does
+be read, does not match the format below, no time lies within the window, the archive does
 not cover the output grid, or a file is not on the output grid, is reported, and the
 climatology (or land-use albedo) is used for it. The report is repeated at the end of the run.
 With `--strict-inputs` the run stops instead. Pixels that an available field does not cover,
@@ -268,6 +268,57 @@ warns when more than 1% of the day pixels (of the land pixels, for albedo) do so
 **Provenance.** `magic` prints which share of the day pixels came from each source and how many
 were clipped, and writes, as global attributes of the output files, the source of each
 requested input (archive, variable, source time, DINI run), those shares, and any problems.
+
+### Format of the zarr archives
+
+The archives are not supplied with specMAGIC; you must provide them yourself. They must open
+with `xarray.open_zarr` and have the layout below.
+Names are case-sensitive, and dimensions must be in the order given. Time coordinates must
+decode to `datetime64`.
+
+**CAMS** (`CAMS_ZARR`), hourly fields on a global regular latitude/longitude grid:
+
+| Name | Dimensions | Requirements |
+|---|---|---|
+| `valid_time` | `valid_time` | the time each field is valid at |
+| `latitude` | `latitude` | degrees, strictly monotonic, either direction |
+| `longitude` | `longitude` | degrees in 0..360, strictly ascending, evenly spaced, covering the globe |
+| `aod550` | `valid_time, latitude, longitude` | units `~`, `1` or empty |
+| `gtco3` | `valid_time, latitude, longitude` | units `kg m**-2` or `kg m-2` |
+| `tcwv` | `valid_time, latitude, longitude` | units `kg m**-2` or `kg m-2` |
+
+A CAMS variable that is missing or has the wrong units is reported on its own; the others are
+still used.
+
+**DINI** (`DINI_ZARR`), forecasts on a projected grid:
+
+| Name | Dimensions | Requirements |
+|---|---|---|
+| `forecast_reference_time` | `forecast_reference_time` | the start of each run |
+| `step` | `step` | forecast step, as `timedelta64` or in whole hours |
+| `x`, `y` | `x`, `y` | projection coordinates, strictly ascending |
+| `latitude`, `longitude` | `y, x` | degrees, used to find the domain |
+| `dini_projection` | none | attribute `crs_wkt` with the projection as WKT |
+| `wvint` | `forecast_reference_time, step, y, x` | units `kg m**-2` or `kg m-2` |
+
+**LSA SAF** (`LSASAF_ZARR`), the daily MTDAL product on the geostationary grid:
+
+| Name | Dimensions | Requirements |
+|---|---|---|
+| `time` | `time` | 00:00 of each product day |
+| `x`, `y` | `x`, `y` | scan angles in radians, evenly spaced, either direction |
+| `geostationary` | none | CF grid mapping attributes, including `perspective_point_height` |
+| `AL-VI-DH`, `AL-NI-DH` | `time, y, x` | must decode to albedo in 0-1, e.g. int16 with `scale_factor` 1e-4 |
+| `QFLAGS` | `time, y, x` | integer, bit 0 set on land |
+| `Z_Age` | `time, y, x` | integer, age of the albedo in days, negative where there is none |
+
+`py_utils/verify_zarr_inputs.py` checks an archive against this layout without reading any
+data:
+
+    uv run python py_utils/verify_zarr_inputs.py --cams $CAMS_ZARR --dini $DINI_ZARR --lsasaf $LSASAF_ZARR
+
+`extract_zarr_inputs.py` runs the same checks on every archive it opens, so the pipeline needs
+no separate step for it. An archive that fails is treated like a missing one.
 
 ## Unused files and dead config fields
 
