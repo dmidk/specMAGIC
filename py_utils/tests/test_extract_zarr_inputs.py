@@ -1,11 +1,16 @@
 """
 Tests for the pure helpers of extract_zarr_inputs.py.
 
-    uv run python -m unittest discover -s py_utils -p "test_*.py"
+    uv run python -m unittest discover -s py_utils/tests
 """
+import sys
 import unittest
+from pathlib import Path
 
 import numpy as np
+
+# The module under test lives in py_utils, one level up
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from extract_zarr_inputs import axis_weights, bilinear_points, bilinear_regular, preferred_order
 

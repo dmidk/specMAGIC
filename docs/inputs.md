@@ -239,8 +239,9 @@ is taken from the nearest pixel of its geostationary grid.
 visible (0.4-0.7 um) for the Kato bands up to band 16 and for satellite channels below 700 nm,
 near-infrared (0.7-4.0 um) otherwise. A pixel uses LSA SAF only where both are available, so
 that it never mixes the two sources across bands. Pixels whose albedo is more than 10 days old
-(`Z_Age`) are dropped. LSA SAF has no albedo over water (bit 0 of `QFLAGS` unset), so water uses
-the land-use albedo, which is expected and not reported.
+(`Z_Age`) are dropped, and the pixel reverts to the land-use albedo. LSA SAF has no albedo 
+over water (bit 0 of `QFLAGS` unset), so water uses the land-use albedo, which is expected and 
+not reported.
 
 According to the LSA SAF albedo ATBD (SAF/LAND/MF/ATBD_MTDAL 1.1, section 4.3.5), the
 directional-hemispherical albedo is given for the solar zenith angle at local noon of each
@@ -251,11 +252,10 @@ declination| for the image's day, also when the albedo comes from an earlier day
 suggests blending with the bi-hemispherical albedo by the diffuse fraction; that is not done,
 since LSA SAF provides the bi-hemispherical albedo only as broadband.
 
-**Range.** Unlike the smooth monthly climatologies, these fields do leave the LUT axes: CAMS
-ozone over Europe spans about 197-549 DU against the 210-525 DU of `o3corr-l.lut`, and AOD
-reaches about 4.6 in dust events against the 2.0 of `magic-clear_spectral.lut`. Values from the
-archives are therefore clipped to the axes. Climatology values are not: out-of-range water
-vapour or ozone throws, and out-of-range AOD is extrapolated linearly.
+**Range.** These fields do leave the LUT axes: CAMS ozone over Europe spans about 197-549 DU 
+against the 210-525 DU of `o3corr-l.lut`, and AOD reaches about 4.6 in dust events against the 
+2.0 of `magic-clear_spectral.lut`. Values from the zarr archives are therefore clipped to the 
+axes.
 
 **Missing inputs.** A requested input that is not available at all, because an archive cannot
 be read, a variable or its units are wrong, no time lies within the window, the archive does

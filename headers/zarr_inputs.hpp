@@ -33,6 +33,10 @@ namespace ZarrInputs {
     // Share of pixels falling back to the climatology above which the run warns about it
     constexpr double FALLBACK_WARNING_SHARE = 0.01;
 
+    // LSA SAF gives its visible albedo (AL-VI-DH) below this wavelength and its
+    // near-infrared albedo (AL-NI-DH) above it
+    constexpr double LSASAF_VIS_NIR_SPLIT_NM = 700.;
+
     struct Request {
         bool atmosphere = false;   // aerosol and ozone from CAMS, water vapour from DINI and CAMS
         bool albedo = false;       // albedo from LSA SAF
@@ -159,14 +163,15 @@ namespace ZarrInputs {
 
             if (!hasAlbedo(a)) return (MAGIC_REAL)-1;
 
-            // Band 16 (684.2-704.4 nm) is the last that is mostly visible
+            // Kato band 16 (684.2-704.4 nm, zero-based 15) lies mostly below
+            // LSASAF_VIS_NIR_SPLIT_NM, so bands 1-16 take the visible albedo
             return at(zero_based_kato_band <= 15 ? albedo_vis : albedo_nir, a);
         }
 
         MAGIC_REAL getSatelliteAlbedo(double wavelength_nm, const Area& a) const {
 
             if (!hasAlbedo(a)) return (MAGIC_REAL)-1;
-            return at(wavelength_nm < 700. ? albedo_vis : albedo_nir, a);
+            return at(wavelength_nm < LSASAF_VIS_NIR_SPLIT_NM ? albedo_vis : albedo_nir, a);
         }
 
         // For the global attributes of the output files: where every requested input came from
@@ -262,6 +267,9 @@ namespace ZarrInputs {
             return f.present() ? f.provenance : std::string(fallback) + " (zarr input missing)";
         }
 
+        // Same result as std::isnan, but std::isnan cannot be used: under -ffast-math the
+        // compiler assumes NaN never occurs and folds std::isnan(v) to false (GCC 9 does).
+        // Testing the IEEE 754 bits directly (exponent all ones, fraction non-zero) survives
         static bool isNan(float v) {
             uint32_t bits;
             std::memcpy(&bits, &v, sizeof bits);
