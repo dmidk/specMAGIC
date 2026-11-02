@@ -43,12 +43,63 @@ namespace ZarrInputs {
         bool strict = false;       // stop instead of falling back when a requested input is missing
     };
 
+    // One field on the output grid, stored row-major (lat, lon) in a plain array, as in
+    // Matrix. It is allocated once while the files are read and never resized, so that the
+    // parallel loop only ever reads fixed memory.
     struct Field {
-        std::vector<float> values;
+
         std::string file;
         std::string provenance;
 
-        bool present() const { return !values.empty(); }
+        Field() noexcept = default;
+
+        Field(int rows, int cols) : rows_(rows), cols_(cols) {
+            if (rows_ <= 0 || cols_ <= 0) throw std::runtime_error("Field: dimensions must be positive");
+            data_ = new float[static_cast<size_t>(rows_) * cols_];
+        }
+
+        ~Field() { delete[] data_; }
+
+        // Owns its data, so it is moved, never copied
+        Field(const Field&) = delete;
+        Field& operator=(const Field&) = delete;
+
+        Field(Field&& other) noexcept
+            : file(std::move(other.file)), provenance(std::move(other.provenance)),
+              rows_(other.rows_), cols_(other.cols_), data_(other.data_) {
+            other.rows_ = other.cols_ = 0;
+            other.data_ = nullptr;
+        }
+
+        Field& operator=(Field&& other) noexcept {
+            if (this != &other) {
+                delete[] data_;
+                file = std::move(other.file);
+                provenance = std::move(other.provenance);
+                rows_ = other.rows_;
+                cols_ = other.cols_;
+                data_ = other.data_;
+
+                other.rows_ = other.cols_ = 0;
+                other.data_ = nullptr;
+            }
+            return *this;
+        }
+
+        bool present() const noexcept { return data_ != nullptr; }
+
+        // Unchecked access. Assumes 0 <= lat < rows and 0 <= lon < cols, which holds for
+        // every pixel, since readFile only accepts files on the output grid.
+        float operator()(int lat, int lon) const noexcept {
+            return data_[static_cast<size_t>(lat) * cols_ + lon];
+        }
+
+        float* data() noexcept { return data_; }
+        size_t size() const noexcept { return static_cast<size_t>(rows_) * cols_; }
+
+    private:
+        int rows_{0}, cols_{0};
+        float* data_{nullptr};
     };
 
     // How the inputs of the day pixels were sourced, summed over threads after the loop
@@ -79,7 +130,6 @@ namespace ZarrInputs {
 
         Field aod, o3, h2o, h2o_cams, albedo_vis, albedo_nir, albedo_land;
         Request request;
-        int nlon = 0;
 
         // Requested inputs that are not available, reported again after the run
         std::vector<std::string> problems;
@@ -97,7 +147,6 @@ namespace ZarrInputs {
         void load(const std::string& list_path, const Geography& geo, Request r) {
 
             request = r;
-            nlon = geo.nlon;
 
             if (list_path.empty()) {
                 problem("ZARR_INPUTS is not set, so no zarr inputs were given");
@@ -234,7 +283,7 @@ namespace ZarrInputs {
 
         float at(const Field& f, const Area& a) const {
             if (!f.present()) return MISSING;
-            return f.values[static_cast<size_t>(a.nlat) * nlon + a.nlon];
+            return f(a.nlat, a.nlon);
         }
 
         bool hasAlbedo(const Area& a) const {
@@ -309,8 +358,8 @@ namespace ZarrInputs {
             std::printf("%sZarr input %s: %s \n", level, name, summary(t, albedo).c_str());
         }
 
-        bool sameAxis(const std::vector<double>& file_axis, const MAGIC_EXACT* geo_axis) const {
-            for (size_t i = 0; i < file_axis.size(); i++) {
+        static bool sameAxis(const double* file_axis, const MAGIC_EXACT* geo_axis, size_t n) {
+            for (size_t i = 0; i < n; i++) {
                 if (std::fabs(file_axis[i] - geo_axis[i]) > 1e-3) return false;
             }
             return true;
@@ -343,13 +392,16 @@ namespace ZarrInputs {
                 && file_nlat == geo.nlat && file_nlon == geo.nlon;
 
             if (ok) {
-                std::vector<double> file_lat(file_nlat), file_lon(file_nlon);
+                double* file_lat = new double[file_nlat];
+                double* file_lon = new double[file_nlon];
                 int varid;
                 ok = nc_inq_varid(ncid, "lat", &varid) == NC_NOERR
-                    && nc_get_var_double(ncid, varid, file_lat.data()) == NC_NOERR
+                    && nc_get_var_double(ncid, varid, file_lat) == NC_NOERR
                     && nc_inq_varid(ncid, "lon", &varid) == NC_NOERR
-                    && nc_get_var_double(ncid, varid, file_lon.data()) == NC_NOERR
-                    && sameAxis(file_lat, geo.lat) && sameAxis(file_lon, geo.lon);
+                    && nc_get_var_double(ncid, varid, file_lon) == NC_NOERR
+                    && sameAxis(file_lat, geo.lat, file_nlat) && sameAxis(file_lon, geo.lon, file_nlon);
+                delete[] file_lat;
+                delete[] file_lon;
             }
 
             if (!ok) {
@@ -373,20 +425,21 @@ namespace ZarrInputs {
                     continue;
                 }
 
-                std::vector<float> values(file_nlat * file_nlon);
-                if (nc_get_var_float(ncid, varid, values.data()) != NC_NOERR) {
+                Field field(static_cast<int>(file_nlat), static_cast<int>(file_nlon));
+                if (nc_get_var_float(ncid, varid, field.data()) != NC_NOERR) {
                     problem(std::string("could not read ") + f.first + " from " + path);
                     continue;
                 }
 
-                for (float& v : values) {
-                    if (isNan(v)) v = MISSING;
+                float* values = field.data();
+                for (size_t i = 0; i < field.size(); i++) {
+                    if (isNan(values[i])) values[i] = MISSING;
                 }
 
-                f.second->values = std::move(values);
-                f.second->file = path;
-                f.second->provenance = textAttribute(ncid, varid, "provenance");
-                if (f.second->provenance.empty()) f.second->provenance = path;
+                field.file = path;
+                field.provenance = textAttribute(ncid, varid, "provenance");
+                if (field.provenance.empty()) field.provenance = path;
+                *f.second = std::move(field);
             }
 
             nc_close(ncid);
