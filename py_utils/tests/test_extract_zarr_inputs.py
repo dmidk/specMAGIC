@@ -12,7 +12,7 @@ import numpy as np
 # The module under test lives in py_utils, one level up
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from extract_zarr_inputs import axis_weights, bilinear_points, bilinear_regular, preferred_order
+from extract_zarr_inputs import axis_weights, bilinear_points, bilinear_regular, forecast, preferred_order
 
 HOUR = np.timedelta64(1, "h")
 
@@ -41,6 +41,19 @@ class PreferredOrder(unittest.TestCase):
                               np.timedelta64(10, "D"), np.timedelta64(0, "s"))
         self.assertEqual([str(days[i])[:10] for i in idx],
                          ["2026-08-23", "2026-08-22", "2026-08-21", "2026-08-20"])
+
+
+class Forecast(unittest.TestCase):
+
+    # Not "run", which would hide TestCase.run
+    reference_time = np.datetime64("2026-08-23T12:00", "ns")
+
+    def test_timedelta_step(self):
+        self.assertEqual(forecast(self.reference_time, np.timedelta64(3600 * 10**9, "ns")),
+                         "run 2026-08-23T12:00 +1 h")
+
+    def test_step_in_hours(self):
+        self.assertEqual(forecast(self.reference_time, 11), "run 2026-08-23T12:00 +11 h")
 
 
 class Interpolation(unittest.TestCase):

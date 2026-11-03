@@ -265,9 +265,60 @@ With `--strict-inputs` the run stops instead. Pixels that an available field doe
 such as those outside the DINI domain, always fall back without stopping the run; `magic`
 warns when more than 1% of the day pixels (of the land pixels, for albedo) do so.
 
-**Provenance.** `magic` prints which share of the day pixels came from each source and how many
-were clipped, and writes, as global attributes of the output files, the source of each
-requested input (archive, variable, source time, DINI run), those shares, and any problems.
+### Provenance in the output files
+
+When `--cams-dini-atmosphere` or `--albedo LSASAF` is used, `magic` writes as global attributes
+of every output file (GHI, DNI, CAL and CSR, all with the same attributes) where each requested
+input came from. They are metadata only: specMAGIC never reads them back. They let you tell
+from the output file alone, without the run log, which archive slices it was made from, and
+whether part of it fell back to the climatologies. Without these options, the output files
+have none of them.
+
+| Attribute | Written with | Content |
+|---|---|---|
+| `aod_source` | `--cams-dini-atmosphere` | archive, variable, forecast run and step, and valid time of the aerosol |
+| `o3_source` | `--cams-dini-atmosphere` | the same for ozone |
+| `h2o_source` | `--cams-dini-atmosphere` | the same for DINI water vapour |
+| `h2o_backup_source` | `--cams-dini-atmosphere` | the same for the CAMS water vapour used outside the DINI domain |
+| `aod_usage`, `o3_usage`, `h2o_usage` | `--cams-dini-atmosphere` | shares of the day pixels, see below |
+| `albedo_vis_source`, `albedo_nir_source` | `--albedo LSASAF` | archive, variable and product day of the LSA SAF albedo |
+| `albedo_usage` | `--albedo LSASAF` | shares of the pixels, see below |
+| `input_problems` | either, only if there were problems | every problem reported during the run, separated by `; ` |
+
+A source attribute reads, for example,
+`dini wvint run 2026-08-23T13:00 +0 h, valid 2026-08-23T13:00 from /path/to/dini.zarr`, that
+is, the 13:00 run at step 0. For CAMS, the run and step are only included if the archive has
+the optional `forecast_reference_time` and `forecast_period` coordinates (see the format
+below). If the input was requested but not available, it names what was used instead, ending in
+`(zarr input missing)`, such as `aerosol climatology (zarr input missing)`.
+
+The usage attributes count the day pixels, since night and invalid pixels use no inputs.
+
+* `aod_usage`, `o3_usage` and `h2o_usage`, e.g.
+  `20.0% zarr, 80.0% zarr backup, 0.0% climatology, 0.0% clipped to LUT`. "zarr" is the
+  primary archive (CAMS for aerosol and ozone, DINI for water vapour), "zarr backup" is CAMS
+  water vapour outside the DINI domain (always 0 for aerosol and ozone), and "climatology"
+  is where neither had a value. The first three add up to 100%. "clipped to LUT" is the
+  share whose archive value lay outside the LUT axis and was clipped to it; these pixels are
+  also counted under "zarr" or "zarr backup".
+* `albedo_usage`, e.g. `99.9% of land day pixels from LSA SAF, 0.1% land-use albedo; 53.0% of
+  all day pixels are water and use the land-use albedo`. The first two shares are of the land
+  day pixels and add up to 100%; the land-use share there is land that LSA SAF had no usable
+  albedo for. The last share is of all day pixels, and is expected, since LSA SAF has no
+  albedo over water.
+
+The same lines are printed at the end of the run, prefixed with `[WARNING]:` when the
+climatology or land-use share exceeds 1%.
+
+To read the attributes, use `ncdump -h`:
+
+    ncdump -h out/GHI/GHI202608231300.nc
+
+or, in Python:
+
+    import xarray as xr
+    attrs = xr.open_dataset("out/GHI/GHI202608231300.nc").attrs
+    print(attrs["h2o_source"], attrs.get("input_problems", "no problems"))
 
 ### Format of the zarr archives
 
@@ -286,6 +337,8 @@ decode to `datetime64`.
 | `aod550` | `valid_time, latitude, longitude` | units `~`, `1` or empty |
 | `gtco3` | `valid_time, latitude, longitude` | units `kg m**-2` or `kg m-2` |
 | `tcwv` | `valid_time, latitude, longitude` | units `kg m**-2` or `kg m-2` |
+| `forecast_reference_time` | `valid_time` | optional, with `forecast_period`: the run each field comes from |
+| `forecast_period` | `valid_time` | optional, with `forecast_reference_time`: the step, as `timedelta64` or in whole hours |
 
 A CAMS variable that is missing or has the wrong units is reported on its own; the others are
 still used.

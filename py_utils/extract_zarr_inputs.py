@@ -139,6 +139,13 @@ def stamp(when):
     return str(np.datetime_as_string(when, unit="m"))
 
 
+def forecast(run, step):
+    """The run and step of a forecast field, for its provenance."""
+    if not np.issubdtype(np.asarray(step).dtype, np.timedelta64):
+        step = np.timedelta64(int(step), "h")
+    return f"run {stamp(run)} +{int(step / np.timedelta64(1, 'h'))} h"
+
+
 ## ------ Earlier extractions ------
 
 def source_path(out_dir, source, when):
@@ -234,27 +241,38 @@ def extract_cams(path, target, lat, lon, grid_attrs, out_dir):
     times = ds.valid_time.values
     order = preferred_order(times, target, HOURLY_MAX_BEFORE, HOURLY_MAX_AFTER)
 
+    # The forecast each valid time comes from, if the archive records it
+    has_forecast = "forecast_reference_time" in ds.coords and "forecast_period" in ds.coords
+    runs = ds.forecast_reference_time.values if has_forecast else None
+    steps = ds.forecast_period.values if has_forecast else None
+
     results = []
     for name, var, scale in fields:
         label = f"cams {var}"
         if var in broken:
             continue
 
+        def provenance(i):
+            run = f"{forecast(runs[i], steps[i])}, " if has_forecast else ""
+            return f"cams {var} {run}valid {stamp(times[i])} from {path}"
+
         def load(i):
             da = ds[var].isel(valid_time=i)
             values = da.values.astype(np.float64) * scale
             return {name: bilinear_regular(da.latitude.values, da.longitude.values, values, lat, lon)}
 
+        # Matching the provenance too, so that a valid time whose forecast was replaced
+        # in the archive is extracted again
         def cached(i):
-            return has_cached(source_path(out_dir, "cams", times[i]), [name], lat, lon, grid_attrs)
+            return has_cached(source_path(out_dir, "cams", times[i]), [name], lat, lon, grid_attrs,
+                              provenance(i))
 
         i, loaded = first_with_data(order, load, cached, label)
         if i is None:
             continue
 
-        provenance = f"cams {var} valid {stamp(times[i])} from {path}"
         results.append((name, None if loaded is None else loaded[name], times[i],
-                        {"provenance": provenance}))
+                        {"provenance": provenance(i)}))
     return results
 
 
@@ -289,8 +307,7 @@ def extract_dini(path, target, lat, lon, grid_attrs, out_dir):
     order = ok[np.lexsort((-runs[run_idx[ok]].astype(np.int64), valid[ok], np.abs(diff[ok])))]
 
     def provenance(k):
-        step_hours = int(steps[step_idx[k]] / np.timedelta64(1, "h"))
-        return (f"dini wvint run {stamp(runs[run_idx[k]])} +{step_hours} h, "
+        return (f"dini wvint {forecast(runs[run_idx[k]], steps[step_idx[k]])}, "
                 f"valid {stamp(valid[k])} from {path}")
 
     lat2d, lon2d = np.broadcast_arrays(lat[:, None], lon[None, :])

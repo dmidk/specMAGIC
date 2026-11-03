@@ -80,6 +80,15 @@ class Cams(unittest.TestCase):
         ds = cams().isel(longitude=slice(0, 3))
         self.assertIn(None, [var for var, _ in check_cams(ds)])
 
+    def test_forecast_coordinates_pass(self):
+        ds = cams().assign_coords(forecast_reference_time=("valid_time", HOURS),
+                                  forecast_period=("valid_time", np.zeros(len(HOURS), dtype="timedelta64[ns]")))
+        self.assertEqual(check_cams(ds), [])
+
+    def test_one_forecast_coordinate_alone_is_refused(self):
+        ds = cams().assign_coords(forecast_reference_time=("valid_time", HOURS))
+        self.assertIn(None, [var for var, _ in check_cams(ds)])
+
 
 class Dini(unittest.TestCase):
 

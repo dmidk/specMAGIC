@@ -67,6 +67,18 @@ def check_cams(ds):
         elif not np.isclose(lon[0] + 360 - lon[-1], lon[1] - lon[0], rtol=1e-3):
             errors.append((None, "longitude must cover the globe, so that it wraps around"))
 
+    # Optional: the forecast each valid time comes from, recorded in the provenance
+    forecast = ("forecast_reference_time", "forecast_period")
+    if any(name in ds.coords for name in forecast):
+        if not all(name in ds.coords and ds[name].dims == ("valid_time",) for name in forecast):
+            errors.append((None, "forecast_reference_time and forecast_period must both be "
+                                 "coordinates along valid_time, or both be absent"))
+        else:
+            errors += check_times(ds, "forecast_reference_time")
+            # The forecast step is a timedelta, or a number of hours
+            if ds.forecast_period.dtype.kind not in "fiu":
+                errors += check_times(ds, "forecast_period", kind="m")
+
     dims = ("valid_time", "latitude", "longitude")
     errors += check_variable(ds, "aod550", dims, DIMENSIONLESS)
     errors += check_variable(ds, "gtco3", dims, KG_M2)
