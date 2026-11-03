@@ -96,7 +96,7 @@ int main(int argc, char* argv[]) {
 
     // Optional fields from the zarr archives, which override the climatologies per pixel
     ZarrInputs::Request request;
-    request.atmosphere = envFlag("ZARR_ATMOSPHERE");
+    request.atmosphere = envFlag("CAMS_DINI_ATMOSPHERE");
     request.albedo = albedo_source == AlbedoType::LSASAF;
     request.strict = envFlag("STRICT_INPUTS");
 

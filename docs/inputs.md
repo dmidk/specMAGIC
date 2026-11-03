@@ -204,7 +204,7 @@ geography.
 Two options of the driver replace static tables with fields for the time of the satellite
 image, read from zarr archives:
 
-* `--zarr-atmosphere-inputs` replaces the aerosol, ozone and water vapour climatologies.
+* `--cams-dini-atmosphere` replaces the aerosol, ozone and water vapour climatologies.
 * `--albedo LSASAF` replaces the land-use albedo (and `reflec.lut`) by the LSA SAF albedo.
 
 They are independent, so that their effects can be judged separately, and either can be

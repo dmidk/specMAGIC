@@ -15,8 +15,8 @@ CHANNEL="vis_06"
 DEMO="${DEMO:-0}"              # 1 = use local demo data, 0 = user supplies MTG_RAW_DIR
 MTG_RAW_DIR="${MTG_RAW_DIR:-}"
 ALBEDO="${ALBEDO:-LANDMAP}"
-ZARR_ATMOSPHERE="${ZARR_ATMOSPHERE:-0}"   # 1 = take aerosol, ozone and water vapour from the zarr archives
-STRICT_INPUTS="${STRICT_INPUTS:-0}"       # 1 = stop if a requested zarr input is missing, instead of warning
+CAMS_DINI_ATMOSPHERE="${CAMS_DINI_ATMOSPHERE:-0}"   # 1 = take aerosol, ozone and water vapour from the zarr archives
+STRICT_INPUTS="${STRICT_INPUTS:-0}"                 # 1 = stop if a requested zarr input is missing, instead of warning
 # Paths of the zarr archives. An unset archive is skipped, and what it would provide
 # falls back to the climatologies (or stops the run with --strict-inputs)
 CAMS_ZARR="${CAMS_ZARR:-}"
@@ -34,7 +34,7 @@ usage() {
     echo "  --channel CHANNEL     Satellite channel (default: $CHANNEL). Options: vis_04 vis_05 vis_06 vis_08 vis_09 nir_13 nir_16 nir_22 ir_38 wv_63 wv_73 ir_87 ir_97 ir_105 ir_123 ir_133"
     echo "  --albedo ALBEDO       Albedo type (default: $ALBEDO). Options: LANDMAP MODIS LSASAF"
     echo "                        LSASAF reads the LSA SAF zarr archive (LSASAF_ZARR)"
-    echo "  --zarr-atmosphere-inputs"
+    echo "  --cams-dini-atmosphere"
     echo "                        Take aerosol and ozone (CAMS) and water vapour (DINI, then CAMS) from the"
     echo "                        zarr archives (CAMS_ZARR, DINI_ZARR) instead of the climatologies"
     echo "  --strict-inputs       Stop if a requested zarr input is missing, instead of warning and"
@@ -84,8 +84,8 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
 
-        --zarr-atmosphere-inputs)
-            ZARR_ATMOSPHERE=1
+        --cams-dini-atmosphere)
+            CAMS_DINI_ATMOSPHERE=1
             shift
             ;;
 
@@ -165,7 +165,7 @@ esac
 
 # The zarr archives that were asked for must have a path
 required_zarr=()
-if [[ "$ZARR_ATMOSPHERE" == "1" ]]; then
+if [[ "$CAMS_DINI_ATMOSPHERE" == "1" ]]; then
     required_zarr+=(CAMS_ZARR DINI_ZARR)
 fi
 if [[ "$ALBEDO" == "LSASAF" ]]; then
@@ -297,9 +297,9 @@ fi
 ## is not fatal: magic reports what is missing and uses the climatologies for it
 ZARR_INPUTS="$ROOT/zarr_inputs.txt"
 rm -f "$ZARR_INPUTS"
-if [[ "$ZARR_ATMOSPHERE" == "1" || "$ALBEDO" == "LSASAF" ]]; then
+if [[ "$CAMS_DINI_ATMOSPHERE" == "1" || "$ALBEDO" == "LSASAF" ]]; then
     extract_args=()
-    if [[ "$ZARR_ATMOSPHERE" == "1" ]]; then
+    if [[ "$CAMS_DINI_ATMOSPHERE" == "1" ]]; then
         extract_args+=(--cams "$CAMS_ZARR" --dini "$DINI_ZARR")
     fi
     if [[ "$ALBEDO" == "LSASAF" ]]; then
@@ -321,7 +321,7 @@ if [[ "$ZARR_ATMOSPHERE" == "1" || "$ALBEDO" == "LSASAF" ]]; then
 fi
 
 export OMP_NUM_THREADS=8
-export ZARR_INPUTS ZARR_ATMOSPHERE STRICT_INPUTS
+export ZARR_INPUTS CAMS_DINI_ATMOSPHERE STRICT_INPUTS
 export ALBEDO=$ALBEDO
 echo "Calling magic..."
 

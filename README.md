@@ -129,7 +129,7 @@ A destination check is implemented, so that if the files are found to already ex
 Instead of the monthly climatologies, the clear-sky atmosphere can be taken from zarr archives for the time of the satellite image: aerosol and ozone from CAMS, and water vapour from DINI (with CAMS outside the DINI domain). Separately, the surface albedo can be taken from LSA SAF.
 
 ```
-./scripts/mtg.sh --ref-time "2026-08-23 13:00" --zarr-atmosphere-inputs --albedo LSASAF
+./scripts/mtg.sh --ref-time "2026-08-23 13:00" --cams-dini-atmosphere --albedo LSASAF
 ```
 
 The zarr archives are not supplied with specMAGIC; you must provide them yourself, in the format given in [the input documentation](docs/inputs.md#format-of-the-zarr-archives), which `py_utils/verify_zarr_inputs.py` can check. The archive locations must be set with the environment variables `CAMS_ZARR`, `DINI_ZARR` and `LSASAF_ZARR`, for example `export CAMS_ZARR=/path/to/cams.zarr`. An archive that is not set is skipped with a warning, or stops the run if `--strict-inputs` is given. Anything requested that the archives cannot provide falls back to the climatologies with a warning, or stops the run if `--strict-inputs` is given. See [the input documentation](docs/inputs.md#inputs-from-zarr-archives) for the details.
