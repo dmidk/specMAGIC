@@ -17,6 +17,7 @@ import os
 import sys
 import argparse
 import tomllib
+from functools import lru_cache
 from datetime import datetime, timezone
 
 import numpy as np
@@ -49,6 +50,12 @@ def problem(message):
     """A requested input that cannot be used. Fatal with --strict."""
     problems.append(message)
     warn(message)
+
+
+@lru_cache(maxsize=None)
+def open_store(path):
+    """Opens an archive once per process, so that a caller looping over images reuses it."""
+    return xr.open_zarr(path)
 
 
 ## ------ What the model grid and image look like ------
@@ -232,7 +239,7 @@ def bilinear_points(src_y, src_x, values, y, x):
 
 def extract_cams(path, target, lat, lon, grid_attrs, out_dir):
     """Aerosol and ozone, plus water vapour as the backup for DINI."""
-    ds = xr.open_zarr(path)
+    ds = open_store(path)
     broken = unusable("cams", path, check_cams(ds))
     if broken is None:
         return []
@@ -278,7 +285,7 @@ def extract_cams(path, target, lat, lon, grid_attrs, out_dir):
 
 def extract_dini(path, target, lat, lon, grid_attrs, out_dir):
     """Water vapour from the most recent DINI run valid at the chosen time."""
-    ds = xr.open_zarr(path)
+    ds = open_store(path)
     if unusable("dini", path, check_dini(ds)) != set():
         return []
     label = "dini wvint"
@@ -342,7 +349,7 @@ def extract_lsasaf(path, target, lat, lon, grid_attrs, out_dir):
     Visible and near-infrared black-sky albedo, used as they are, plus the land/water mask
     from QFLAGS, so that magic can tell normal gaps over water from missing land albedo.
     """
-    ds = xr.open_zarr(path)
+    ds = open_store(path)
     if unusable("lsasaf", path, check_lsasaf(ds)) is None:
         return []
 
@@ -461,6 +468,29 @@ def write_source_files(source, results, lat, lon, grid_attrs, target, out_dir):
     return used
 
 
+def extract_inputs(target, lat, lon, grid_attrs, out_dir, cams="", dini="", lsasaf=""):
+    """
+    Extracts every archive that has a path for one image time, and returns the paths of the
+    files written or reused. What cannot be extracted is added to problems.
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    print(f" Extracting zarr inputs for image time {target}...")
+
+    used = []
+    for source, path, extract in (("cams", cams, extract_cams),
+                                  ("dini", dini, extract_dini),
+                                  ("lsasaf", lsasaf, extract_lsasaf)):
+        if not path:
+            continue
+        try:
+            results = extract(path, target, lat, lon, grid_attrs, out_dir)
+        except Exception as e:
+            problem(f"{source}: could not extract from {path} ({type(e).__name__}: {e})")
+            continue
+        used += write_source_files(source, results, lat, lon, grid_attrs, target, out_dir)
+    return used
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("image_list")
@@ -477,22 +507,7 @@ def main():
 
     target = image_time(args.image_list)
     lat, lon, grid_attrs = output_grid(args.config, subsatellite_longitude(args.satellite_toml))
-    os.makedirs(args.out_dir, exist_ok=True)
-
-    print(f" Extracting zarr inputs for image time {target}...")
-
-    used = []
-    for source, path, extract in (("cams", args.cams, extract_cams),
-                                  ("dini", args.dini, extract_dini),
-                                  ("lsasaf", args.lsasaf, extract_lsasaf)):
-        if not path:
-            continue
-        try:
-            results = extract(path, target, lat, lon, grid_attrs, args.out_dir)
-        except Exception as e:
-            problem(f"{source}: could not extract from {path} ({type(e).__name__}: {e})")
-            continue
-        used += write_source_files(source, results, lat, lon, grid_attrs, target, args.out_dir)
+    used = extract_inputs(target, lat, lon, grid_attrs, args.out_dir, args.cams, args.dini, args.lsasaf)
 
     with open(args.list_out, "w") as f:
         f.writelines(p + "\n" for p in used)
