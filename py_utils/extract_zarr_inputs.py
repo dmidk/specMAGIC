@@ -3,7 +3,7 @@ Extracts inputs for one satellite image from the zarr archives, and writes them 
 specMAGIC output grid, so that magic can use them instead of the climatologies and albedo maps.
 
     python extract_zarr_inputs.py <image_list> <config> <satellite_toml> <out_dir> <list_out>
-        [--cams PATH] [--dini PATH] [--lsasaf PATH] [--strict]
+        [--cams PATH] [--dini PATH] [--lsasaf PATH] [--lsasaf-nc DIR] [--strict]
 
 Every archive is optional. Whatever cannot be extracted is reported, and magic falls back to
 the climatology (or the land-use albedo) for it. With --strict, any such problem makes this
@@ -12,12 +12,15 @@ script exit with 1 instead.
 One NetCDF file is written per archive and source time, and their paths are listed in
 <list_out>, which magic reads through the ZARR_INPUTS environment variable. A file that an
 earlier run already wrote for the same source time and grid is reused, not extracted again.
+
+LSA SAF can also be read from the daily files that LSA SAF distributes, all in one directory
+(--lsasaf-nc), instead of from an archive built from them. If given, --lsasaf is not used.
 """
 import os
 import sys
 import argparse
 import tomllib
-from functools import lru_cache
+from functools import lru_cache, partial
 from datetime import datetime, timezone
 
 import numpy as np
@@ -56,6 +59,35 @@ def problem(message):
 def open_store(path):
     """Opens an archive once per process, so that a caller looping over images reuses it."""
     return xr.open_zarr(path)
+
+
+def lsasaf_file(directory, day):
+    """The daily LSA SAF albedo file (MTDAL) of a day, as LSA SAF names it."""
+    return os.path.join(directory, f"LSA-105_MTG_MTDAL_MTG-FD_{str(np.datetime64(day, 'D')).replace('-', '')}0000.nc")
+
+
+def open_lsasaf_files(directory, target):
+    """
+    The daily LSA SAF files that an image at target can use (its own day and the days before
+    it within DAILY_MAX_BEFORE), as one dataset laid out like the archive. The directory is
+    listed again for every image, so that files arriving in real time are found.
+    """
+    day = target.astype("datetime64[D]")
+    days = day - np.arange(int(DAILY_MAX_BEFORE / np.timedelta64(1, "D")) + 1)
+    files = [lsasaf_file(directory, d) for d in days[::-1] if os.path.exists(lsasaf_file(directory, d))]
+    if not files:
+        raise FileNotFoundError(f"no LSA SAF file for {day} or the {len(days) - 1} days before it "
+                                f"in {directory}")
+    return open_files(tuple(files))
+
+
+@lru_cache(maxsize=4)
+def open_files(files):
+    """Opens a set of daily files once, so that the images of a day reuse them."""
+    # Only what varies with time is stacked; the rest, such as the grid mapping, is taken
+    # from the first file
+    return xr.open_mfdataset(files, combine="by_coords", data_vars="minimal", coords="minimal",
+                             compat="override")
 
 
 ## ------ What the model grid and image look like ------
@@ -344,12 +376,13 @@ def extract_dini(path, target, lat, lon, grid_attrs, out_dir):
              {"provenance": provenance(k)})]
 
 
-def extract_lsasaf(path, target, lat, lon, grid_attrs, out_dir):
+def extract_lsasaf(path, target, lat, lon, grid_attrs, out_dir, daily_files=False):
     """
     Visible and near-infrared black-sky albedo, used as they are, plus the land/water mask
     from QFLAGS, so that magic can tell normal gaps over water from missing land albedo.
+    path is an archive, or with daily_files a directory of the daily LSA SAF files.
     """
-    ds = open_store(path)
+    ds = open_lsasaf_files(path, target) if daily_files else open_store(path)
     if unusable("lsasaf", path, check_lsasaf(ds)) is None:
         return []
 
@@ -420,7 +453,8 @@ def extract_lsasaf(path, target, lat, lon, grid_attrs, out_dir):
 
     results = []
     for name, var in (("albedo_vis", "AL-VI-DH"), ("albedo_nir", "AL-NI-DH"), ("albedo_land", "QFLAGS")):
-        attrs = {"provenance": f"lsasaf {var} day {str(when)[:10]} from {path}"}
+        source = lsasaf_file(path, when) if daily_files else path
+        attrs = {"provenance": f"lsasaf {var} day {str(when)[:10]} from {source}"}
         results.append((name, None if loaded is None else loaded[name], when, attrs))
     return results
 
@@ -468,10 +502,11 @@ def write_source_files(source, results, lat, lon, grid_attrs, target, out_dir):
     return used
 
 
-def extract_inputs(target, lat, lon, grid_attrs, out_dir, cams="", dini="", lsasaf=""):
+def extract_inputs(target, lat, lon, grid_attrs, out_dir, cams="", dini="", lsasaf="", lsasaf_nc=""):
     """
     Extracts every archive that has a path for one image time, and returns the paths of the
-    files written or reused. What cannot be extracted is added to problems.
+    files written or reused. What cannot be extracted is added to problems. lsasaf_nc, a
+    directory of daily LSA SAF files, replaces the lsasaf archive if given.
     """
     os.makedirs(out_dir, exist_ok=True)
     print(f" Extracting zarr inputs for image time {target}...")
@@ -479,7 +514,8 @@ def extract_inputs(target, lat, lon, grid_attrs, out_dir, cams="", dini="", lsas
     used = []
     for source, path, extract in (("cams", cams, extract_cams),
                                   ("dini", dini, extract_dini),
-                                  ("lsasaf", lsasaf, extract_lsasaf)):
+                                  ("lsasaf", lsasaf_nc or lsasaf,
+                                   partial(extract_lsasaf, daily_files=bool(lsasaf_nc)))):
         if not path:
             continue
         try:
@@ -501,13 +537,16 @@ def main():
     parser.add_argument("--cams", default="")
     parser.add_argument("--dini", default="")
     parser.add_argument("--lsasaf", default="")
+    parser.add_argument("--lsasaf-nc", default="",
+                        help="directory of the daily LSA SAF files, used instead of --lsasaf")
     parser.add_argument("--strict", action="store_true",
                         help="exit with 1 if a requested input cannot be extracted")
     args = parser.parse_args()
 
     target = image_time(args.image_list)
     lat, lon, grid_attrs = output_grid(args.config, subsatellite_longitude(args.satellite_toml))
-    used = extract_inputs(target, lat, lon, grid_attrs, args.out_dir, args.cams, args.dini, args.lsasaf)
+    used = extract_inputs(target, lat, lon, grid_attrs, args.out_dir, args.cams, args.dini, args.lsasaf,
+                          args.lsasaf_nc)
 
     with open(args.list_out, "w") as f:
         f.writelines(p + "\n" for p in used)

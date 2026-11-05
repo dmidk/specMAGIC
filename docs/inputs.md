@@ -209,8 +209,10 @@ image, read from zarr archives:
 
 They are independent, so that their effects can be judged separately, and either can be
 combined with the other albedo options. The archive paths are taken from the environment
-variables `CAMS_ZARR`, `DINI_ZARR` and `LSASAF_ZARR`; there are no defaults. An archive that
-is requested but not set is skipped with a warning, or stops the run with `--strict-inputs`.
+variables `CAMS_ZARR`, `DINI_ZARR` and `LSASAF_ZARR`; there are no defaults. LSA SAF can
+instead be read from the daily files that LSA SAF distributes, by setting `LSASAF_NC_DIR` to
+the directory that holds them; `LSASAF_ZARR` is then not used. An archive that is requested
+but not set is skipped with a warning, or stops the run with `--strict-inputs`.
 `py_utils/extract_zarr_inputs.py` reads the archives,
 converts and regrids the fields onto the output grid, and writes one NetCDF file per archive
 and source time into `zarr_handled/`. Their paths are listed in `zarr_inputs.txt`, which
@@ -365,13 +367,24 @@ still used.
 | `QFLAGS` | `time, y, x` | integer, bit 0 set on land |
 | `Z_Age` | `time, y, x` | integer, age of the albedo in days, negative where there is none |
 
-`py_utils/verify_zarr_inputs.py` checks an archive against this layout without reading any
-data:
+**LSA SAF daily files** (`LSASAF_NC_DIR`). Instead of an archive, LSA SAF can be read from the
+daily NetCDF files of the MTDAL product (LSA-105) as LSA SAF distributes them, all in one
+directory and named as LSA SAF names them, e.g. `LSA-105_MTG_MTDAL_MTG-FD_202501010000.nc` for
+2025-01-01. Each file must have the layout of the LSA SAF table above, with a `time` of length
+one; the files from LSA SAF do. For each image, the file of its day and those of the 10 days
+before it are looked up by name and opened together, so files that arrive while specMAGIC
+runs are found, and other files in the directory are ignored. The provenance then names the
+file used. They give the same extracted albedo as an archive built from the same files.
+
+`py_utils/verify_zarr_inputs.py` checks an archive, or the newest of the daily LSA SAF files,
+against this layout without reading any data:
 
     uv run python py_utils/verify_zarr_inputs.py --cams $CAMS_ZARR --dini $DINI_ZARR --lsasaf $LSASAF_ZARR
+    uv run python py_utils/verify_zarr_inputs.py --lsasaf-nc $LSASAF_NC_DIR
 
-`extract_zarr_inputs.py` runs the same checks on every archive it opens, so the pipeline needs
-no separate step for it. An archive that fails is treated like a missing one.
+`extract_zarr_inputs.py` runs the same checks on every archive, and every set of daily files,
+it opens, so the pipeline needs no separate step for it. An archive that fails is treated like
+a missing one.
 
 ## Unused files and dead config fields
 

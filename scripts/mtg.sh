@@ -22,6 +22,8 @@ STRICT_INPUTS="${STRICT_INPUTS:-0}"                 # 1 = stop if a requested za
 CAMS_ZARR="${CAMS_ZARR:-}"
 DINI_ZARR="${DINI_ZARR:-}"
 LSASAF_ZARR="${LSASAF_ZARR:-}"
+# Directory of the daily LSA SAF files (LSA-105_MTG_MTDAL_MTG-FD_*.nc). Replaces LSASAF_ZARR if set
+LSASAF_NC_DIR="${LSASAF_NC_DIR:-}"
 EXTENT="40.0 -15.0 65.0 30.0 1.0"
 
 valid_channels=(vis_04 vis_05 vis_06 vis_08 vis_09 nir_13 nir_16 nir_22 ir_38 wv_63 wv_73 ir_87 ir_97 ir_105 ir_123 ir_133)
@@ -33,7 +35,8 @@ usage() {
     echo "  --ref-time TIME       Reference time (not available in demo mode)"
     echo "  --channel CHANNEL     Satellite channel (default: $CHANNEL). Options: vis_04 vis_05 vis_06 vis_08 vis_09 nir_13 nir_16 nir_22 ir_38 wv_63 wv_73 ir_87 ir_97 ir_105 ir_123 ir_133"
     echo "  --albedo ALBEDO       Albedo type (default: $ALBEDO). Options: LANDMAP MODIS LSASAF"
-    echo "                        LSASAF reads the LSA SAF zarr archive (LSASAF_ZARR)"
+    echo "                        LSASAF reads the daily LSA SAF files (LSASAF_NC_DIR) if set,"
+    echo "                        otherwise the LSA SAF zarr archive (LSASAF_ZARR)"
     echo "  --cams-dini-atmosphere"
     echo "                        Take aerosol and ozone (CAMS) and water vapour (DINI, then CAMS) from the"
     echo "                        zarr archives (CAMS_ZARR, DINI_ZARR) instead of the climatologies"
@@ -168,7 +171,7 @@ required_zarr=()
 if [[ "$CAMS_DINI_ATMOSPHERE" == "1" ]]; then
     required_zarr+=(CAMS_ZARR DINI_ZARR)
 fi
-if [[ "$ALBEDO" == "LSASAF" ]]; then
+if [[ "$ALBEDO" == "LSASAF" && -z "$LSASAF_NC_DIR" ]]; then
     required_zarr+=(LSASAF_ZARR)
 fi
 for var in "${required_zarr[@]}"; do
@@ -303,7 +306,7 @@ if [[ "$CAMS_DINI_ATMOSPHERE" == "1" || "$ALBEDO" == "LSASAF" ]]; then
         extract_args+=(--cams "$CAMS_ZARR" --dini "$DINI_ZARR")
     fi
     if [[ "$ALBEDO" == "LSASAF" ]]; then
-        extract_args+=(--lsasaf "$LSASAF_ZARR")
+        extract_args+=(--lsasaf "$LSASAF_ZARR" --lsasaf-nc "$LSASAF_NC_DIR")
     fi
     if [[ "$STRICT_INPUTS" == "1" ]]; then
         extract_args+=(--strict)

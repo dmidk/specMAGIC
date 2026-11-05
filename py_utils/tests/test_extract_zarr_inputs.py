@@ -1,9 +1,11 @@
 """
-Tests for the pure helpers of extract_zarr_inputs.py.
+Tests for the helpers of extract_zarr_inputs.py.
 
     uv run python -m unittest discover -s py_utils/tests
 """
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -12,7 +14,10 @@ import numpy as np
 # The module under test lives in py_utils, one level up
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from extract_zarr_inputs import axis_weights, bilinear_points, bilinear_regular, forecast, preferred_order
+from extract_zarr_inputs import (axis_weights, bilinear_points, bilinear_regular, forecast,
+                                 lsasaf_file, open_lsasaf_files, preferred_order)
+from test_verify_zarr_inputs import lsasaf
+from verify_zarr_inputs import check_lsasaf
 
 HOUR = np.timedelta64(1, "h")
 
@@ -84,6 +89,39 @@ class Interpolation(unittest.TestCase):
 
         # -5 lies between 350 and the wrapped 360, whose value is that of 0
         np.testing.assert_allclose(out, [[(350 + 0) / 2 + 5, 15 + 5]], rtol=1e-6)
+
+
+class LsaSafDailyFiles(unittest.TestCase):
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = self.tmp.name
+
+        # One file per day, as LSA SAF distributes them, from 2026-08-01 to 2026-08-25
+        day = lsasaf().isel(time=[0])
+        for d in np.arange(np.datetime64("2026-08-01"), np.datetime64("2026-08-26")):
+            day.assign_coords(time=[d.astype("datetime64[ns]")]).to_netcdf(lsasaf_file(self.dir, d))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_file_name(self):
+        self.assertEqual(os.path.basename(lsasaf_file("/d", np.datetime64("2025-01-01T13:40"))),
+                         "LSA-105_MTG_MTDAL_MTG-FD_202501010000.nc")
+
+    def test_opens_the_image_day_and_the_ten_days_before(self):
+        ds = open_lsasaf_files(self.dir, np.datetime64("2026-08-20T13:40", "s"))
+        self.assertEqual([str(t)[:10] for t in ds.time.values],
+                         [str(d) for d in np.arange(np.datetime64("2026-08-10"), np.datetime64("2026-08-21"))])
+        self.assertEqual(check_lsasaf(ds), [])
+
+    def test_takes_what_there_is_before_a_gap(self):
+        ds = open_lsasaf_files(self.dir, np.datetime64("2026-08-30T12:00", "s"))
+        self.assertEqual(str(ds.time.values[-1])[:10], "2026-08-25")
+
+    def test_no_file_in_the_window(self):
+        with self.assertRaises(FileNotFoundError):
+            open_lsasaf_files(self.dir, np.datetime64("2026-09-30T12:00", "s"))
 
 
 if __name__ == "__main__":

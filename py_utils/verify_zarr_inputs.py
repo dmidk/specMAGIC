@@ -2,12 +2,15 @@
 Checks that zarr archives have the layout that extract_zarr_inputs.py expects, as specified
 in docs/inputs.md, without reading any data.
 
-    python verify_zarr_inputs.py [--cams PATH] [--dini PATH] [--lsasaf PATH]
+    python verify_zarr_inputs.py [--cams PATH] [--dini PATH] [--lsasaf PATH] [--lsasaf-nc DIR]
 
-Exits with 1 if any archive does not match. extract_zarr_inputs.py runs the same checks on
+--lsasaf-nc checks the newest of the daily LSA SAF files in a directory, which can be used
+instead of an LSA SAF archive. Exits with 1 if anything does not match. extract_zarr_inputs.py runs the same checks on
 the archives it has already opened, so a pipeline run needs no separate verification.
 """
+import os
 import sys
+import glob
 import argparse
 
 import numpy as np
@@ -153,20 +156,34 @@ def check_lsasaf(ds):
 
 CHECKS = {"cams": check_cams, "dini": check_dini, "lsasaf": check_lsasaf}
 
+# The daily LSA SAF albedo files, as extract_zarr_inputs.lsasaf_file names them
+LSASAF_DAILY_FILES = "LSA-105_MTG_MTDAL_MTG-FD_*0000.nc"
+
+
+def open_newest_lsasaf_file(directory):
+    files = sorted(glob.glob(os.path.join(directory, LSASAF_DAILY_FILES)))
+    if not files:
+        raise FileNotFoundError(f"no {LSASAF_DAILY_FILES} in {directory}")
+    print(f"lsasaf-nc: checking the newest file, {os.path.basename(files[-1])}")
+    return xr.open_dataset(files[-1])
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     for source in CHECKS:
         parser.add_argument(f"--{source}", default="")
+    parser.add_argument("--lsasaf-nc", default="", metavar="DIR")
     args = parser.parse_args()
 
+    targets = [(source, getattr(args, source), check, xr.open_zarr) for source, check in CHECKS.items()]
+    targets.append(("lsasaf-nc", args.lsasaf_nc, check_lsasaf, open_newest_lsasaf_file))
+
     failed = False
-    for source, check in CHECKS.items():
-        path = getattr(args, source)
+    for source, path, check, open_source in targets:
         if not path:
             continue
         try:
-            errors = check(xr.open_zarr(path))
+            errors = check(open_source(path))
         except Exception as e:
             errors = [(None, f"cannot be opened ({type(e).__name__}: {e})")]
         print(f"{source} {path}: {'OK' if not errors else 'does not match the specification'}")
