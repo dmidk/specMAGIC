@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reworked `geo2MTGImage` function to work for other satellites as well as MTG. [!18](https://github.com/dmidk/specMAGIC/pull/18) @ElloiseFangelLloyd. 
 - Use longitude of the subsatellite point in the `geo2Image` function to correctly calculate for satellites located at nonzero longitudes. [!20](https://github.com/dmidk/specMAGIC/pull/20) @KristianHMoller
 - Removed the automatic vertical flipping applied to image, as was necessary for MTG. Instead, whether or not each image should be flipped can now be specified in the `satellite.toml` file, and the flipping will be applied conditionally. [!22](https://github.com/dmidk/specMAGIC/pull/22) @ElloiseFangelLloyd @KristianHMoller
+- Include the coding standard. [!35](https://github.com/dmidk/specMAGIC/pull/35) @ElloiseFangelLloyd
 
 
 ## [v1.0.0]
