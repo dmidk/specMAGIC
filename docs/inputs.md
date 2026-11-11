@@ -276,9 +276,19 @@ To fill the DINI domain's surroundings with CAMS, regrid both and combine them b
 `uv sync` builds the package, including the C++ (`python/bindings.cpp`, with pybind11), and
 builds it again when the C++ sources change (`[tool.uv] cache-keys` in `pyproject.toml`).
 
-**The image** is the channel as satpy gives it: named after the channel, with the attributes
-`resolution` and `calibration`, and a start time (attribute or coordinate `start_time`). It
-may be counts, or for MTG reflectance, which is turned back into counts with the FCI
+**The image** is the channel as satpy gives it: named after the channel (in the attribute
+`name`, as satpy does, or as the DataArray's name), with the attributes `resolution` and
+`calibration`, and a start time (attribute or coordinate `start_time`). It can come straight
+from the L1c files, with no file written in between:
+
+    import glob, hdf5plugin
+    from satpy import Scene
+    scene = Scene(filenames=glob.glob("MTG/*FCI-1C-RRAD-FDHSI-FD--CHK-BODY*_O_0079_*.nc"),
+                  reader="fci_l1c_nc", reader_kwargs={"engine": "h5netcdf"})
+    scene.load(["vis_06"], calibration="counts")
+    out = specmagic.run(scene["vis_06"])
+
+The image may be counts, or for MTG reflectance, which is turned back into counts with the FCI
 calibration in `python/specmagic/_image.py` (taken from the L1c files; satpy's
 `radiance_unit_conversion_coefficient` attribute is checked against it). It may be the full
 disc or a crop of it with its `x`/`y` coordinates in metres; a crop is put in its place on an

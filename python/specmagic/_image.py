@@ -65,7 +65,9 @@ def image_counts(image, satellite):
     the channel, from an image DataArray as satpy gives it: named after its channel, with
     the attributes resolution and calibration ("counts" or "reflectance").
     """
-    channel = image.name
+    # satpy names the channel in the attributes; the DataArray itself may carry the name of
+    # the variable in the L1c files (effective_radiance)
+    channel = image.attrs.get("name") or image.name
     resolution = int(image.attrs["resolution"])
     when = start_time(image)
     calibration = image.attrs.get("calibration", "counts")

@@ -169,6 +169,14 @@ class Image(unittest.TestCase):
         np.testing.assert_array_equal(counts[4000:4002, 100:103], [[0, 1, 2], [3, 4, 5]])
         self.assertEqual(counts[0, 0], FILL)
 
+    def test_channel_from_satpy_attributes(self):
+        # satpy names the DataArray after the L1c variable, and the channel in its attributes
+        image = xr.DataArray(np.zeros((FULL_DISC_PIXELS[2000],) * 2, np.int16), dims=("y", "x"),
+                             name="effective_radiance",
+                             attrs={"name": "vis_06", "resolution": 2000, "calibration": "counts",
+                                    "start_time": datetime(2026, 8, 23, 12)})
+        self.assertEqual(image_counts(image, "mtg")[3], "vis_06")
+
     def test_unpacked_counts_are_refused(self):
         # As preprocessMTG.py writes the image: int16 counts packed with the radiance calibration
         pixels, step = FULL_DISC_PIXELS[2000], 2000.0
