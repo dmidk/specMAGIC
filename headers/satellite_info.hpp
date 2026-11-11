@@ -39,17 +39,23 @@ struct Metadata {
     std::unordered_map<std::string, int> wavelengths;
 };
 
-inline Metadata loadMetadata(const std::string& channel){
+// The name of the satellite from the SATELLITE environment variable, as the CLI gets it
+inline std::string satelliteFromEnv() {
     const char* satellite_env = std::getenv("SATELLITE");
 
     if (satellite_env == nullptr || std::string(satellite_env).empty()) {
         throw std::runtime_error(
             "SATELLITE environment variable is not set");
     }
+    return satellite_env;
+}
+
+// Reads satellites/<satellite>.toml in the home directory. An empty channel skips the
+// channel's wavelength, for when only the navigation is needed
+inline Metadata loadMetadata(const std::string& channel, const std::string& satellite, const std::string& home){
 
     // look for the toml
-    std::string satellite = satellite_env;
-    std::filesystem::path config_path = std::filesystem::path("satellites") / (satellite + ".toml");
+    std::filesystem::path config_path = std::filesystem::path(home) / "satellites" / (satellite + ".toml");
 
     // there has to be a toml
     if (!std::filesystem::exists(config_path)) {
@@ -101,7 +107,10 @@ inline Metadata loadMetadata(const std::string& channel){
         }
     }
 
-    // what channel are we using now
+    // what channel are we using now; none when only the navigation is needed
+    metadata.wavelength = 0;
+    if (channel.empty()) return metadata;
+
     auto wavelength_it = metadata.wavelengths.find(channel);
 
     if (wavelength_it == metadata.wavelengths.end()) {

@@ -1,5 +1,9 @@
+[build-system]
+requires = ["scikit-build-core>=0.10", "pybind11>=2.13"]
+build-backend = "scikit_build_core.build"
+
 [project]
-name = "magic"
+name = "specmagic"
 version = "0.1.0"
 description = "MTG to GHI for sunflow"
 requires-python = ">=3.11"
@@ -36,3 +40,20 @@ dev = [
     "cmake>=4.4.0",
 ]
 
+# The Python package specmagic, with the C++ core as specmagic._magic
+[tool.scikit-build]
+wheel.packages = ["python/specmagic"]
+cmake.define = {MAGIC_PYTHON = "ON"}
+build-dir = "build/python"
+
+
+# Rebuild the C++ core (specmagic._magic) when its sources change; uv would otherwise keep
+# the module it built first
+[tool.uv]
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "CMakeLists.txt" },
+    { file = "src/**/*.cpp" },
+    { file = "headers/**/*.hpp" },
+    { file = "python/bindings.cpp" },
+]
