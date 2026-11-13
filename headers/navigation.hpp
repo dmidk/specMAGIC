@@ -51,13 +51,14 @@ struct PixelClimate {
     MAGIC_REAL o3;
     MAGIC_EXACT surface_albedo;
     MAGIC_EXACT albedo_correction;
+    MAGIC_EXACT noon_albedo_correction;   // scales an albedo given for the noon sun to the current sun
 
     // Parameterised ctor for convenience
     PixelClimate(MAGIC_REAL ao, MAGIC_REAL ss, MAGIC_REAL g, MAGIC_REAL h2, MAGIC_REAL o, MAGIC_EXACT alb, MAGIC_EXACT alb_corr) : aod(ao), ssa(ss), 
-        gg(g), h2o(h2), o3(o), surface_albedo(alb), albedo_correction(alb_corr) {}
+        gg(g), h2o(h2), o3(o), surface_albedo(alb), albedo_correction(alb_corr), noon_albedo_correction(1) {}
 
     // Required to define default ctor otherwise build errors
-    PixelClimate() : aod(0), ssa(0), gg(0), h2o(0), o3(0), surface_albedo(0), albedo_correction(0) {}
+    PixelClimate() : aod(0), ssa(0), gg(0), h2o(0), o3(0), surface_albedo(0), albedo_correction(0), noon_albedo_correction(1) {}
 
 
 };

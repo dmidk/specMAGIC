@@ -27,4 +27,5 @@ enum class PixelState { Night = 0, Day = 1, Invalid = 99 };
 enum class IrradianceMode { Beam, Global };
 
 // The source of the albedo data being used
-enum class AlbedoType { LANDMAP, MODIS };
+// INPUT is an albedo field given for the time of the image (InputFields), such as LSA SAF's
+enum class AlbedoType { LANDMAP, MODIS, INPUT };

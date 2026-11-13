@@ -9,6 +9,10 @@ constexpr int NAV_CORRECTION_LINOFFSET = 0;      // empirically determined corre
 constexpr int KATO_MIN = 1; 
 constexpr int KATO_MAX = 32;
 
+// Wavelength between the visible and the near-infrared broadband albedos, as in LSA SAF
+// (AL-VI-DH 0.4-0.7 um, AL-NI-DH 0.7-4.0 um) and MODIS MCD43 (0.3-0.7 um, 0.7-5.0 um)
+constexpr MAGIC_EXACT VIS_NIR_SPLIT_NM = 700.0;
+
 // Useful maths
 constexpr MAGIC_EXACT RADTODEGREE = 57.29577951308232087540;
 constexpr MAGIC_EXACT PI = 3.141592653589793;

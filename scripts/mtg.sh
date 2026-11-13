@@ -15,6 +15,13 @@ CHANNEL="vis_06"
 DEMO="${DEMO:-0}"              # 1 = use local demo data, 0 = user supplies MTG_RAW_DIR
 MTG_RAW_DIR="${MTG_RAW_DIR:-}"
 ALBEDO="${ALBEDO:-LANDMAP}"
+STRICT_INPUTS="${STRICT_INPUTS:-0}"   # 1 = stop if a given input file is not usable, instead of warning
+# Optional input fields for the time of the image, one NetCDF file per table on the output grid
+# (see docs/inputs.md). Pixels without a value in them use the climatology.
+AEROSOL_FILE="${AEROSOL_FILE:-}"
+OZONE_FILE="${OZONE_FILE:-}"
+WATER_VAPOUR_FILE="${WATER_VAPOUR_FILE:-}"
+ALBEDO_FILE="${ALBEDO_FILE:-}"
 EXTENT="40.0 -15.0 65.0 30.0 1.0"
 
 valid_channels=(vis_04 vis_05 vis_06 vis_08 vis_09 nir_13 nir_16 nir_22 ir_38 wv_63 wv_73 ir_87 ir_97 ir_105 ir_123 ir_133)
@@ -25,7 +32,16 @@ usage() {
     echo "Options:"
     echo "  --ref-time TIME       Reference time (not available in demo mode)"
     echo "  --channel CHANNEL     Satellite channel (default: $CHANNEL). Options: vis_04 vis_05 vis_06 vis_08 vis_09 nir_13 nir_16 nir_22 ir_38 wv_63 wv_73 ir_87 ir_97 ir_105 ir_123 ir_133"
-    echo "  --albedo ALBEDO       Albedo type (default: $ALBEDO). Options: LANDMAP MODIS" 
+    echo "  --albedo ALBEDO       Albedo type (default: $ALBEDO). Options: LANDMAP MODIS"
+    echo "  --aerosol-file FILE   Aerosol optical depth for the image's time, instead of the climatology"
+    echo "  --ozone-file FILE     Ozone for the image's time, instead of the climatology"
+    echo "  --water-vapour-file FILE"
+    echo "                        Water vapour for the image's time, instead of the climatology"
+    echo "  --albedo-file FILE    Black-sky albedo at local noon, e.g. from LSA SAF, instead of the"
+    echo "                        land-use albedo. The input files must be on the output grid; see"
+    echo "                        docs/inputs.md"
+    echo "  --strict-inputs       Stop if a given input file is not usable, instead of warning and"
+    echo "                        falling back to the climatologies"
     echo "  --demo                Use demo data (default)"
     echo "  --no-demo             Use user-specified MTG_RAW_DIR instead of demo data"
     echo "  --clean               Delete existing outputs before running"
@@ -69,6 +85,31 @@ while [[ $# -gt 0 ]]; do
         --albedo)
             ALBEDO="$2"
             shift 2
+            ;;
+
+        --aerosol-file)
+            AEROSOL_FILE="$2"
+            shift 2
+            ;;
+
+        --ozone-file)
+            OZONE_FILE="$2"
+            shift 2
+            ;;
+
+        --water-vapour-file)
+            WATER_VAPOUR_FILE="$2"
+            shift 2
+            ;;
+
+        --albedo-file)
+            ALBEDO_FILE="$2"
+            shift 2
+            ;;
+
+        --strict-inputs)
+            STRICT_INPUTS=1
+            shift
             ;;
 
         --ref-time)
@@ -140,7 +181,12 @@ case "$ALBEDO" in
         ;;
 esac
 
-# Check for ref time 
+if [[ -n "$ALBEDO_FILE" && "$ALBEDO" == "MODIS" ]]; then
+    echo "Error: --albedo MODIS and --albedo-file cannot be used together."
+    exit 1
+fi
+
+# Check for ref time
 # In demo mode, the time is fixed, so the user should not pass a time
 if [[ "$DEMO" -eq 1 ]]; then
 
@@ -249,6 +295,7 @@ fi
 
 
 export OMP_NUM_THREADS=8
+export AEROSOL_FILE OZONE_FILE WATER_VAPOUR_FILE ALBEDO_FILE STRICT_INPUTS
 export ALBEDO=$ALBEDO
 echo "Calling magic..."
 
