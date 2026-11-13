@@ -148,6 +148,15 @@ out = specmagic.run(image, aerosol=cams.aod550, ozone=cams.gtco3, grid=(31, 72, 
 
 A given input that cannot be used falls back to the climatology with a warning, or stops the run with `--strict-inputs` (`strict=True` in Python). See [the input documentation](docs/inputs.md#input-fields-for-the-time-of-the-image) for the file format, the Python API, and how the inputs are used.
 
+## Tests
+
+The tests use pytest, which `uv sync` installs with the dev dependencies. The tests comparing the CLI with Python need the CLI built first, and are skipped otherwise:
+
+```bash
+cmake -S . -B build && cmake --build build
+uv run pytest
+```
+
 ## Further documentation
 
 There exist some notes on various aspects of the program, linked below.

@@ -2,6 +2,7 @@
 // given from memory, through the same runMagic as the CLI. The Python package (specmagic)
 // prepares the arrays; see python/specmagic/__init__.py.
 
+#include <cstdio>
 #include <map>
 #include <optional>
 #include <stdexcept>
@@ -81,6 +82,7 @@ static py::dict run(const std::string& home, const std::string& channel, const s
         inputs.set(name, values.data(), static_cast<int>(values.shape(0)), static_cast<int>(values.shape(1)),
             field.second, geo);
     }
+    std::fflush(stdout);
     inputs.check();
 
     if (inputs.request.albedo) {
@@ -94,6 +96,10 @@ static py::dict run(const std::string& home, const std::string& channel, const s
         py::gil_scoped_release release;
         return runMagic(c, img, geo, albedo_source, inputs);
     }();
+
+    // magic reports with printf; flush it now, so that it appears with the run in Python
+    // (e.g. in a notebook or under pytest) rather than when the process exits
+    std::fflush(stdout);
 
     py::dict attributes;
     for (const auto& [key, value] : result.attributes) attributes[py::str(key)] = value;

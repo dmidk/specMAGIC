@@ -38,6 +38,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "cmake>=4.4.0",
+    "pytest>=9.2.0",
 ]
 
 # The Python package specmagic, with the C++ core as specmagic._magic
@@ -57,3 +58,6 @@ cache-keys = [
     { file = "headers/**/*.hpp" },
     { file = "python/bindings.cpp" },
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
