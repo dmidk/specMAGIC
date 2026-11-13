@@ -12,6 +12,7 @@
 #include <vector>
 #include <netcdf.h>
 
+#include "constants.hpp"
 #include "navigation.hpp"
 #include "tables.hpp"
 #include "types.hpp"
@@ -34,10 +35,6 @@ namespace InputFields {
 
     // Share of pixels falling back to the climatology above which the run warns about it
     constexpr double FALLBACK_WARNING_SHARE = 0.01;
-
-    // The visible albedo applies below this wavelength and the near-infrared albedo above
-    // it, as in LSA SAF (AL-VI-DH 0.4-0.7 um, AL-NI-DH 0.7-4.0 um)
-    constexpr double VIS_NIR_SPLIT_NM = 700.;
 
     // Which tables were given
     struct Request {
