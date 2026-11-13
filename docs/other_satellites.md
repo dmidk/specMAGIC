@@ -73,6 +73,10 @@ refers to 1km resolution at nadir and its corresponding grid sampling angle. Not
 
 Follow the `readme.md` for instructions to specify the satellite data file path and run in non-demo mode.
 
+### The Python package
+
+The Python package `specmagic` brings the image to the counts on the full disc that magic reads in `python/specmagic/_mtg.py`, which is specific to MTG/FCI: its calibration, the size of its full disc in pixels, and its file names. Another satellite needs a module like it, with the same functions `image_counts(image)` and `write_image(image, directory)`, listed in `IMAGES` in `python/specmagic/__init__.py`. Until then, `specmagic.run(image, satellite="msg")` raises a `NotImplementedError` saying which satellites it can read.
+
 ### 5. Hardware
 
 The driver script specifies that specMAGIC should use 8 threads/cores in parallel, which are available on generally any laptop computer. If running on a larger setup, there may be more available. Change the number of tweaks by altering 

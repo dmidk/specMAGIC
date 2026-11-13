@@ -11,8 +11,8 @@ import xarray as xr
 from pyorbital.astronomy import sun_earth_distance_correction
 from pyproj import CRS, Transformer
 
-from specmagic import lsasaf_albedo, write_inputs
-from specmagic._image import FULL_DISC_PIXELS, FILL, image_counts, to_counts
+from specmagic import lsasaf_albedo, satellite_image, write_inputs
+from specmagic._mtg import FULL_DISC_PIXELS, FILL, image_counts, to_counts
 from specmagic._inputs import candidates, forecast, positions, preferred_order, regrid, regrid_input, sample
 
 HOUR = np.timedelta64(1, "h")
@@ -177,7 +177,7 @@ def test_crop_goes_to_its_place_on_the_disc():
     crop = xr.DataArray(np.arange(6.0).reshape(2, 3), dims=("y", "x"), name="vis_06",
                         coords=crop_coordinates(range(4000, 4002), range(100, 103), pixels, 2000.0),
                         attrs={"resolution": 2000, "calibration": "counts", "start_time": "2026-08-23 12:00:00"})
-    counts, resolution, when, channel = image_counts(crop, "mtg")
+    counts, resolution, when, channel = image_counts(crop)
     assert (counts.shape, resolution, when, channel) == ((pixels, pixels), 2000, datetime(2026, 8, 23, 12), "vis_06")
     np.testing.assert_array_equal(counts[4000:4002, 100:103], [[0, 1, 2], [3, 4, 5]])
     assert counts[0, 0] == FILL
@@ -189,7 +189,12 @@ def test_channel_from_satpy_attributes():
                          name="effective_radiance",
                          attrs={"name": "vis_06", "resolution": 2000, "calibration": "counts",
                                 "start_time": datetime(2026, 8, 23, 12)})
-    assert image_counts(image, "mtg")[3] == "vis_06"
+    assert image_counts(image)[3] == "vis_06"
+
+
+def test_other_satellites_are_refused():
+    with pytest.raises(NotImplementedError, match="cannot read images of 'msg'"):
+        satellite_image("msg")
 
 
 def test_unpacked_counts_are_refused(tmp_path):
@@ -205,9 +210,9 @@ def test_unpacked_counts_are_refused(tmp_path):
 
     with xr.open_dataset(path) as ds:
         with pytest.raises(ValueError, match="mask_and_scale=False"):
-            image_counts(ds.vis_06, "mtg")
+            image_counts(ds.vis_06)
     with xr.open_dataset(path, mask_and_scale=False) as ds:
-        disc = image_counts(ds.vis_06, "mtg")[0]
+        disc = image_counts(ds.vis_06)[0]
         np.testing.assert_array_equal(disc[4000:4002, 100:103], counts)
 
 

@@ -289,7 +289,7 @@ from the L1c files, with no file written in between:
     out = specmagic.run(scene["vis_06"])
 
 The image may be counts, or for MTG reflectance, which is turned back into counts with the FCI
-calibration in `python/specmagic/_image.py` (taken from the L1c files; satpy's
+calibration in `python/specmagic/_mtg.py` (taken from the L1c files; satpy's
 `radiance_unit_conversion_coefficient` attribute is checked against it). It may be the full
 disc or a crop of it with its `x`/`y` coordinates in metres; a crop is put in its place on an
 otherwise empty full disc. The output grid must then lie inside the crop. Counts packed with

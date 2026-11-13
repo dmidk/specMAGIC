@@ -1,7 +1,11 @@
 """
-The satellite image as magic reads it: FCI counts on the full disc, laid out as satpy saves
-them (rows from south to north). A DataArray of counts or of reflectance, of the full disc
-or of a crop of it, is brought to that form here.
+The MTG image as magic reads it: FCI counts on the full disc, laid out as satpy saves them
+(rows from south to north). A DataArray of counts or of reflectance, of the full disc or of
+a crop of it, is brought to that form here.
+
+Everything here is specific to MTG/FCI: its calibration, the size of its full disc, and the
+file names of preprocessMTG.py. Another satellite needs a module like this one, listed in
+IMAGES in __init__.py.
 """
 import re
 import warnings
@@ -59,7 +63,7 @@ def to_counts(reflectance, channel, when):
     return (radiance - offset) / scale
 
 
-def image_counts(image, satellite):
+def image_counts(image):
     """
     The counts of the full disc as int16 (y, x), the resolution in metres, the start time and
     the channel, from an image DataArray as satpy gives it: named after its channel, with
@@ -77,9 +81,9 @@ def image_counts(image, satellite):
     values = image.values.astype(np.float64)
 
     if calibration == "reflectance":
-        if satellite != "mtg" or channel not in FCI_CALIBRATION:
-            raise ValueError(f"reflectance can only be turned into counts for the MTG VNIR channels, not "
-                             f"{channel} of {satellite}; pass counts instead")
+        if channel not in FCI_CALIBRATION:
+            raise ValueError(f"reflectance can only be turned into counts for the FCI VNIR channels, not "
+                             f"{channel}; pass counts instead")
         archived = re.search(r"array\(([-0-9.eE+]+)", str(image.attrs.get("radiance_unit_conversion_coefficient", "")))
         if archived and not np.isclose(float(archived.group(1)), FCI_CALIBRATION[channel][3], rtol=1e-4):
             warnings.warn(f"The calibration of {channel} differs from FCI_CALIBRATION, so the counts may be off.")
@@ -112,9 +116,9 @@ def image_counts(image, satellite):
     return disc, resolution, when, channel
 
 
-def write_image(image, directory, satellite="mtg"):
+def write_image(image, directory):
     """Writes the image as the NetCDF file that the CLI reads, as preprocessMTG.py does, and returns its path."""
-    counts, resolution, when, channel = image_counts(image, satellite)
+    counts, resolution, when, channel = image_counts(image)
     end = when + timedelta(minutes=10)
     cycle = when.hour * 6 + when.minute // 10 + 1
 

@@ -20,8 +20,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from . import _magic
-from ._image import image_counts, write_image
+from . import _magic, _mtg
 from ._inputs import KINDS, all_land, grid_definition, lsasaf_albedo, output_grid, write_inputs
 from ._inputs import regrid_input as _regrid_input
 
@@ -29,6 +28,10 @@ __all__ = ["run", "regrid_input", "lsasaf_albedo", "write_inputs", "write_image"
 
 OUTPUT_UNITS = {"GHI": "W m-2", "DNI": "W m-2", "CAL": "%", "CSR": "W m-2"}
 FILL = -1
+
+# The module that brings an image of each satellite to the counts magic reads. Another
+# satellite needs its own module like _mtg.py, and a satellites/<name>.toml.
+IMAGES = {"mtg": _mtg}
 
 
 def default_home():
@@ -52,6 +55,18 @@ def regrid_input(da, kind, image_time, grid=None, satellite="mtg", home=None):
     home = Path(home) if home else default_home()
     lat, lon = output_grid(home, satellite, grid)
     return _regrid_input(da, kind, np.datetime64(pd.Timestamp(image_time).to_datetime64(), "s"), lat, lon)
+
+
+def satellite_image(satellite):
+    """The module that reads images of the satellite."""
+    if satellite not in IMAGES:
+        raise NotImplementedError(f"specmagic cannot read images of {satellite!r} yet, only of {', '.join(IMAGES)}")
+    return IMAGES[satellite]
+
+
+def write_image(image, directory, satellite="mtg"):
+    """Writes the image as the NetCDF file that the CLI reads, and returns its path."""
+    return satellite_image(satellite).write_image(image, directory)
 
 
 def run(image, *, aerosol=None, ozone=None, water_vapour=None, albedo_vis=None, albedo_nir=None, land=None,
@@ -80,7 +95,7 @@ def run(image, *, aerosol=None, ozone=None, water_vapour=None, albedo_vis=None, 
     lon) are used as they are.
     """
     home = Path(home) if home else default_home()
-    counts, resolution, when, channel = image_counts(image, satellite)
+    counts, resolution, when, channel = satellite_image(satellite).image_counts(image)
     lat, lon = output_grid(home, satellite, grid)
 
     given = {"aerosol": aerosol, "ozone": ozone, "water_vapour": water_vapour,
