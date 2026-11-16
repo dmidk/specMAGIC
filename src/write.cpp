@@ -30,7 +30,8 @@ std::string makeFilename(DateTime& timestamp,  std::string& variable_name, std::
 
 int writeToNetcdf(const std::string& filename,
     Geography& geo, Matrix& box, int year, int month, int day,
-    double seconds_since_midnight, std::string name) {
+    double seconds_since_midnight, std::string name,
+    const std::vector<std::pair<std::string, std::string>>& attributes) {
     int ncid;
 
     // Create file
@@ -71,6 +72,10 @@ int writeToNetcdf(const std::string& filename,
 
     MAGIC_INT fill = static_cast<MAGIC_INT>(-1);
     NC_CHECK(nc_put_att_magic_int(ncid, matrix_var, "_FillValue", &fill));
+
+    for (const auto& [key, value] : attributes) {
+        NC_CHECK(nc_put_att_text(ncid, NC_GLOBAL, key.c_str(), value.size(), value.c_str()));
+    }
 
     // End define mode
     NC_CHECK(nc_enddef(ncid));

@@ -3,6 +3,7 @@
 #include <string>
 #include <cstring> 
 #include <vector>
+#include <utility>
 #include <cstdio>
 #include <sstream>
 #include <iomanip>
@@ -14,4 +15,5 @@
 std::string makeFilename(DateTime& timestamp,  std::string& variable_name, std::string& out_path);
 
 int writeToNetcdf(const std::string& filename, Geography& geo, Matrix& box, int year, int month, int day,
-    double seconds_since_midnight, std::string name);
+    double seconds_since_midnight, std::string name,
+    const std::vector<std::pair<std::string, std::string>>& attributes = {});

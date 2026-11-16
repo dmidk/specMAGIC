@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <string>
 #include <fstream>
 #include <cassert>
@@ -90,10 +91,10 @@ struct Image {
 
     }
 
-    void readImage(std::string channel) {
+    void readImage(std::string channel, const std::string& satellite, const std::string& home) {
 
         // Initialise the metadata
-        info = loadMetadata(channel);
+        info = loadMetadata(channel, satellite, home);
 
         // Read the actual image
         int status = parseImage(channel); 
@@ -102,7 +103,40 @@ struct Image {
 
     }
 
+    // The image from memory (the Python API): counts of the full disc, row-major (y, x),
+    // laid out as in the files that readImage reads
+    void fromArray(const std::string& channel, const std::string& satellite, const std::string& home,
+        const MAGIC_INT* counts, int ny, int nx, int resolution, const DateTime& start) {
+
+        info = loadMetadata(channel, satellite, home);
+        setGrid(nx, ny, resolution);
+
+        im = Matrix(ny, nx);
+        std::copy(counts, counts + static_cast<long>(ny) * nx, im.data());
+        set_timestamp(start);
+    }
+
 private:
+    // Image size, origin and angular sampling, from the size and resolution of the full disc
+    void setGrid(int nx, int ny, int resolution) {
+
+        info.num_columns = static_cast<unsigned int>(nx);
+        info.num_lines = static_cast<unsigned int>(ny);
+        info.column_offset = nx / 2;
+        info.line_offset = ny / 2;
+        info.resolution = resolution;
+
+        auto it = info.angular_sampling.find(info.resolution);
+
+        if (it == info.angular_sampling.end()) {
+            throw std::runtime_error(
+                "No angular sampling configured for resolution " +
+                std::to_string(info.resolution) + " m");
+        }
+
+        info.angular_sampling_rad = it->second;
+    }
+
     // Parses YYYYMMDDHHMM (seconds ignored if present)
     static inline bool parse_datetime(
         const std::string& s,
@@ -148,12 +182,6 @@ private:
         NC_CHECK(nc_inq_dimid(ncid, "y", &dimid));
         NC_CHECK(nc_inq_dimlen(ncid, dimid, &ny));
 
-        // Get the num cols and num lines from the image
-        info.num_columns = static_cast<unsigned int>(nx);
-        info.num_lines = static_cast<unsigned int>(ny);
-        info.column_offset = static_cast<int>(nx / 2);
-        info.line_offset = static_cast<int>(ny / 2);
-
         im = Matrix((int)ny, (int)nx);
 
         // Get the variable id
@@ -163,17 +191,8 @@ private:
 
         NC_CHECK(nc_get_att_longlong(ncid, varid, "resolution", &resolution));
 
-        info.resolution = static_cast<int>(resolution);
-
-        auto it = info.angular_sampling.find(info.resolution);
-
-        if (it == info.angular_sampling.end()) {
-            throw std::runtime_error(
-                "No angular sampling configured for resolution " +
-                std::to_string(info.resolution) + " m");
-        }
-
-        info.angular_sampling_rad = it->second;
+        // Get the num cols and num lines from the image
+        setGrid(static_cast<int>(nx), static_cast<int>(ny), static_cast<int>(resolution));
 
         
         // Read sat data into short buffer

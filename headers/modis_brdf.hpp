@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <netcdf.h>
 
+#include "constants.hpp"
 #include "helpers.hpp"
 #include "navigation.hpp"
 #include "types.hpp"
@@ -65,7 +66,7 @@ namespace ModisBrdf {
         if (wavelength_nm >= 1230 && wavelength_nm <= 1250) return Source::Band5;
         if (wavelength_nm >= 1628 && wavelength_nm <= 1652) return Source::Band6;
         if (wavelength_nm >= 2105 && wavelength_nm <= 2155) return Source::Band7;
-        if (wavelength_nm < 700) return Source::Vis;
+        if (wavelength_nm < VIS_NIR_SPLIT_NM) return Source::Vis;
         if (wavelength_nm < 2100) return Source::Nir;
         return Source::Shortwave;
     }

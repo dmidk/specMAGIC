@@ -89,7 +89,8 @@ struct Output {
           CAL(rows, cols), 
           CSR(rows, cols) {}
 
-    void toFile(DateTime& timestamp, Geography& geo, Config& c) {
+    void toFile(DateTime& timestamp, Geography& geo, Config& c,
+        const std::vector<std::pair<std::string, std::string>>& attributes = {}) {
 
         double seconds = timestamp.hour * 3600.0 +
             timestamp.minute * 60.0;
@@ -99,25 +100,25 @@ struct Output {
         std::string fname = makeFilename(timestamp, variable_name, out);
 
         writeToNetcdf(fname, geo, GHI, timestamp.year, timestamp.month, timestamp.day,
-            seconds, variable_name);
+            seconds, variable_name, attributes);
 
         variable_name = "DNI";
         out = c.path+c.out_beam_path;
         fname = makeFilename(timestamp, variable_name, out);
         writeToNetcdf(fname, geo, DNI, timestamp.year, timestamp.month, timestamp.day,
-            seconds, variable_name);
+            seconds, variable_name, attributes);
 
         variable_name = "CAL";
         out = c.path+c.out_cal_path;
         fname = makeFilename(timestamp, variable_name, out);
         writeToNetcdf(fname, geo, CAL, timestamp.year, timestamp.month, timestamp.day,
-            seconds, variable_name);
+            seconds, variable_name, attributes);
 
         variable_name = "CSR";
         out = c.path+c.out_clear_path;
         fname = makeFilename(timestamp, variable_name, out);
         writeToNetcdf(fname, geo, CSR, timestamp.year, timestamp.month, timestamp.day,
-            seconds, variable_name);
+            seconds, variable_name, attributes);
 
 
 

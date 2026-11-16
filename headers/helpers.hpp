@@ -1,5 +1,7 @@
 #pragma once 
 #include <string>
+#include <cstdlib>
+#include <stdexcept>
 #include "types.hpp"
 
 
@@ -20,6 +22,18 @@ inline AlbedoType parseAlbedoSource(){
         "Unknown ALBEDO: " + std::string(env)
     );
 
+}
+
+// Whether an environment variable is set to 1
+inline bool envFlag(const char* name) {
+    const char* env = std::getenv(name);
+    return env && std::string(env) == "1";
+}
+
+// The value of an environment variable, empty if it is not set
+inline std::string envString(const char* name) {
+    const char* env = std::getenv(name);
+    return env ? std::string(env) : std::string();
 }
 
 struct Config {
