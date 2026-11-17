@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added the option to download and run with MODIS high-resolution land albedo maps, instead of the coarse landmaps available by default. [!1](https://github.com/dmidk/specMAGIC/pull/1) @irenelivia [!12](https://github.com/dmidk/specMAGIC/pull/12) @SimonKamuk
 - Added the satellite `.toml` file to avoid hardcoded satellite-specific values. [!18](https://github.com/dmidk/specMAGIC/pull/18) @ElloiseFangelLloyd @KristianHMoller
 - Added optional input fields for the time of the satellite image (aerosol, ozone, water vapour and a noon black-sky albedo such as LSA SAF's), replacing the climatologies and the land-use albedo where they have values: as on-grid NetCDF files from the CLI (`--aerosol-file`, `--ozone-file`, `--water-vapour-file`, `--albedo-file`, and `--strict-inputs`), or as xarray DataArrays on any grid from the new Python package `specmagic` (`specmagic.run`), which runs the same C++ through pybind11. [!34](https://github.com/dmidk/specMAGIC/pull/34) @SimonKamuk
+- Added series of images to the Python package: `specmagic.run` takes an image with one more (time) dimension, runs each image as if alone, and returns the output with a `time` dimension. What the images share is done once: the lookup tables and climatologies are read once per month, the output grid is located in each input's grid once, and a slice of an input is regridded once for all images that use it. @SimonKamuk
 
 ### Changed
 - Throw error message rather than silent failure in absorber interpolation. [!9](https://github.com/dmidk/specMAGIC/pull/9) @SimonKamuk
@@ -18,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reworked `geo2MTGImage` function to work for other satellites as well as MTG. [!18](https://github.com/dmidk/specMAGIC/pull/18) @ElloiseFangelLloyd. 
 - Use longitude of the subsatellite point in the `geo2Image` function to correctly calculate for satellites located at nonzero longitudes. [!20](https://github.com/dmidk/specMAGIC/pull/20) @KristianHMoller
 - Removed the automatic vertical flipping applied to image, as was necessary for MTG. Instead, whether or not each image should be flipped can now be specified in the `satellite.toml` file, and the flipping will be applied conditionally. [!22](https://github.com/dmidk/specMAGIC/pull/22) @ElloiseFangelLloyd @KristianHMoller
+- The LSA SAF albedo's age limit (`max_age_days` of `specmagic.lsasaf_albedo`) now counts from the image's day: when an earlier day is used because the image's own is missing, the days in between are added to its age. @SimonKamuk
+- `specmagic` reads only the forecast run and step of the slice it uses, not the whole `forecast_reference_time` and `forecast_period` coordinates along CAMS's `valid_time`, which saves about a second per CAMS field and image. @SimonKamuk
+- `specmagic` takes an image's time from its `start_time` or `time` coordinate before its `start_time` attribute, which a slice of an archive keeps from the whole archive. @SimonKamuk
+- The README leads with the Python package, and the input documentation describes it before the command line. @SimonKamuk
 
 
 ## [v1.0.0]

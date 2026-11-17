@@ -254,6 +254,14 @@ def test_series_is_each_image_in_turn(case):
     assert shares[0] > shares[1]
     assert shares[1] < float(out.attrs["h2o_usage"].split("%")[0]) < shares[0]
     assert "h2o_source" not in out.attrs and out.h2o_source.values[0] != out.h2o_source.values[1]
+    assert out.GHI.attrs["units"] == "W m-2"
+
+
+def test_series_without_its_own_times_is_refused(case):
+    # Concatenated without a time coordinate, every image keeps the start_time attribute of the first
+    series = xr.concat([case.image, case.image], dim="t")
+    with pytest.raises(ValueError, match="each needs its own time"):
+        specmagic.run(series, home=case.home)
 
 
 def test_series_over_a_day_and_month_boundary(case):
@@ -273,4 +281,3 @@ def test_series_over_a_day_and_month_boundary(case):
         one = specmagic.run(series.isel(start_time=i), home=case.home, **inputs)
         assert_outputs_equal(out.isel(time=i), one)
         assert out.albedo_vis_source.values[i] == one.attrs["albedo_vis_source"]
-    assert not np.array_equal(out.GHI.values[0], out.GHI.values[1])

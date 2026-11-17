@@ -11,7 +11,8 @@ fields for its time, all given as xarray DataArrays.
 
 The input fields can be on their own grids, as from CAMS, DINI or LSA SAF. For each, the time
 slice that suits the image is picked and regridded onto the output grid here, in Python, and
-then passed to the same C++ code that the CLI runs.
+then passed to the same C++ code that the CLI runs. The image can also be a series, such as a
+day of images, with one more dimension: specmagic.run(images.sel(start_time="2026-07-15"), ...).
 """
 import os
 from pathlib import Path
@@ -21,7 +22,7 @@ import pandas as pd
 import xarray as xr
 
 from . import _magic, _mtg
-from ._inputs import KINDS, all_land, grid_definition, lsasaf_albedo, output_grid, write_inputs
+from ._inputs import KINDS, Regridded, all_land, grid_definition, lsasaf_albedo, output_grid, write_inputs
 from ._inputs import regrid_input as _regrid_input
 
 __all__ = ["run", "regrid_input", "lsasaf_albedo", "write_inputs", "write_image", "output_grid"]
@@ -79,7 +80,9 @@ def run(image, *, aerosol=None, ozone=None, water_vapour=None, albedo_vis=None, 
         attributes resolution and calibration ("counts", or "reflectance" for MTG), and a
         start time; the full disc, or a crop of it with its x/y coordinates. With one more
         dimension, e.g. start_time, it is a series: each image is run in turn, and the
-        output has a time dimension (see join_series).
+        output has a time dimension (see join_series). The images of a series must each
+        have their own time, as a coordinate start_time or time along that dimension. An
+        error in one image (or an unusable input, if strict) stops the whole series.
     aerosol, ozone, water_vapour: optional fields that replace the climatologies, e.g. CAMS
         aod550 and gtco3, and DINI wvint. Pixels without a value use the climatology.
     albedo_vis, albedo_nir, land: an optional black-sky albedo for the local noon, as from
@@ -97,6 +100,11 @@ def run(image, *, aerosol=None, ozone=None, water_vapour=None, albedo_vis=None, 
     picked and regridded as in regrid_input. Fields already on the output grid (dims lat,
     lon) are used as they are.
     """
+    series = [dim for dim in image.dims if dim not in ("y", "x")] if image.ndim > 2 else []
+    if len(series) > 1:
+        raise ValueError(f"the image has the dimensions {image.dims}; expected y, x and at most one more, "
+                         "the time of a series")
+
     home = Path(home) if home else default_home()
     reader = satellite_image(satellite)
     lat, lon = output_grid(home, satellite, grid)
@@ -109,51 +117,41 @@ def run(image, *, aerosol=None, ozone=None, water_vapour=None, albedo_vis=None, 
     if "land" in given and "albedo_vis" not in given:
         raise ValueError("land is the land mask of the albedo input, so it needs albedo_vis and albedo_nir")
 
-    # The tables are read once for the images of a month, and the daily inputs regridded once
-    # for the images of a day
+    # What is the same for several images of a series is done once: the tables are read once
+    # per month, and the inputs regridded once per slice of their source
     session = _magic.Session(f"{home}/", satellite, albedo, grid_definition(grid) if grid is not None else None)
-    daily = {}
+    regridded = Regridded()
+    done = set()
 
     def run_one(one):
         counts, resolution, when, channel = reader.image_counts(one)
-        return run_image(session, counts, resolution, when, channel, given, lat, lon, strict, daily)
+        if when in done:
+            # A slice of a series without its own time coordinate keeps the series' start_time
+            # attribute, the time of one image
+            raise ValueError(f"two images of the series have the time {when}; each needs its own time, "
+                             "as a coordinate start_time or time along the series dimension")
+        done.add(when)
+        regridded.next_image()
+        return run_image(session, counts, resolution, when, channel, given, lat, lon, strict, regridded)
 
-    series = [dim for dim in image.dims if dim not in ("y", "x")]
     if not series:
         return run_one(image)[0]
-    if len(series) > 1:
-        raise ValueError(f"the image has the dimensions {image.dims}; expected y, x and at most one more, "
-                         "the time of a series")
     return join_series([run_one(image.isel({series[0]: i})) for i in range(image.sizes[series[0]])])
 
 
-def run_image(session, counts, resolution, when, channel, given, lat, lon, strict, daily):
+def run_image(session, counts, resolution, when, channel, given, lat, lon, strict, regridded):
     """
     One image through magic: the output as a Dataset, and the day pixel counts behind its
-    usage attributes. daily keeps the daily inputs (albedo, land) of the image's day, as the
-    images of a day all use the same slice of them.
+    usage attributes.
     """
-    if daily.get("day") != when.date():
-        daily.clear()
-        daily["day"] = when.date()
-
     # An input that cannot be put on the output grid is handed to magic as a problem, which
     # falls back to the climatology, or stops the run if strict, as for the CLI's files
     fields, problems = {}, {}
     for kind, da in given.items():
-        if kind in daily:
-            field, problem = daily[kind]
-        else:
-            try:
-                field, problem = _regrid_input(da, kind, np.datetime64(when, "s"), lat, lon), None
-            except ValueError as e:
-                field, problem = None, f"{kind}: {e}"
-            if KINDS[kind]["daily"]:
-                daily[kind] = field, problem
-        if problem:
-            problems[KINDS[kind]["name"]] = problem
-        else:
-            fields[kind] = field
+        try:
+            fields[kind] = _regrid_input(da, kind, np.datetime64(when, "s"), lat, lon, regridded)
+        except ValueError as e:
+            problems[KINDS[kind]["name"]] = f"{kind}: {e}"
     if "albedo_vis" in fields and "land" not in given:
         fields["land"] = all_land(fields["albedo_vis"])
 
@@ -177,7 +175,7 @@ def join_series(runs):
     from image to image, the source of each input (with the time of the slice used) and any
     input problems, becomes a coordinate along time; an image without problems has "".
     """
-    out = xr.concat([ds for ds, _ in runs], dim="time", combine_attrs="drop")
+    out = xr.concat([ds for ds, _ in runs], dim="time")
 
     totals = {}
     for _, usage in runs:
