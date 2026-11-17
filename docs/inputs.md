@@ -305,7 +305,10 @@ the radiance calibration, as in the files `preprocessMTG.py` writes, must be ope
 
 Each image is run in turn, with the input slices for its own time, exactly as if it were run
 alone, and the output has a `time` dimension. The images of one day share that day's LSA SAF
-albedo, with its age limit, as each one would alone. The attributes are joined as described
+albedo, with its age limit, as each one would alone. Work that is the same for several images
+is done once: the lookup tables and climatologies are read once per month, and the daily
+inputs (albedo and land mask) regridded once per day, so a series is much faster than running
+its images one by one. The attributes are joined as described
 under [provenance](#provenance-in-the-output-files).
 
 **The output grid** is that of `magic-config.asc`, or `grid=(lat_min, lat_max, lon_min,

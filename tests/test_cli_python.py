@@ -254,3 +254,23 @@ def test_series_is_each_image_in_turn(case):
     assert shares[0] > shares[1]
     assert shares[1] < float(out.attrs["h2o_usage"].split("%")[0]) < shares[0]
     assert "h2o_source" not in out.attrs and out.h2o_source.values[0] != out.h2o_source.values[1]
+
+
+def test_series_over_a_day_and_month_boundary(case):
+    # The tables are read again for July, and the albedo of each day is its own
+    times = np.array(["2026-06-30T12:00", "2026-07-01T12:00"], dtype="datetime64[ns]")
+    series = xr.concat([case.image.assign_coords(start_time=t) for t in times], dim="start_time")
+    days = times.astype("datetime64[D]").astype("datetime64[ns]")
+
+    def by_day(field, factor):
+        return xr.concat([field, field * factor], dim="time").assign_coords(time=days)
+
+    inputs = {"albedo_vis": by_day(case.inputs["albedo_vis"], 0.5),
+              "albedo_nir": by_day(case.inputs["albedo_nir"], 0.5), "land": by_day(case.inputs["land"], 1)}
+    out = specmagic.run(series, home=case.home, **inputs)
+
+    for i in range(len(times)):
+        one = specmagic.run(series.isel(start_time=i), home=case.home, **inputs)
+        assert_outputs_equal(out.isel(time=i), one)
+        assert out.albedo_vis_source.values[i] == one.attrs["albedo_vis_source"]
+    assert not np.array_equal(out.GHI.values[0], out.GHI.values[1])

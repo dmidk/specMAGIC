@@ -23,38 +23,43 @@ Geography outputGrid(Config& c, MAGIC_EXACT subsatellite_longitude_deg) {
     return geo;
 }
 
-MagicRun runMagic(Config& c, Image& img, Geography& geo, AlbedoType albedo_source,
+MagicTables::MagicTables(Config& c, MAGIC_EXACT satellite_longitude_deg, unsigned int month, bool modis)
+    : month(month), modis(modis), alb(c.num_bands), lc(KATO_MAX + 1), water(c.h2odim, c.num_bands),
+      ozone(c.o3dim, c.num_bands), monster(c.ggdim, c.ssadim, c.aoddim, c.num_bands), climatologies(c, month) {
+
+    alb.fromFile(c);
+
+    // Empty if MODIS is not enabled
+    if (modis) {
+        modis_albedo.load(c, satellite_longitude_deg, month, AlbedoType::MODIS);
+    }
+
+    lc.fromFile(c);
+    water.fromFile(c.path+c.clut_spec_h2o);
+    ozone.fromFile(c.path+c.clut_spec_o3);
+    monster.fromFile(c.path+c.clut_spec);
+}
+
+MagicRun runMagic(Config& c, Image& img, Geography& geo, MagicTables& tables, AlbedoType albedo_source,
     InputFields::Inputs& inputs) {
 
     const MAGIC_EXACT satellite_longitude_deg = img.info.subsatellite_longitude_deg;
 
-    // ------ Read lookup tables ---------
-    GroundAlbedo alb(c.num_bands);
-    alb.fromFile(c);
-
-    ModisBrdf::ModisBrdfAlbedo modis;
-    // Empty if MODIS is not enabled
-    if (albedo_source == AlbedoType::MODIS) {
-        modis.load(c, satellite_longitude_deg, img.timestamp.month, albedo_source);
+    if (tables.month != img.timestamp.month) {
+        throw std::invalid_argument("the tables are of month " + std::to_string(tables.month)
+            + ", the image of month " + std::to_string(img.timestamp.month));
+    }
+    if (albedo_source == AlbedoType::MODIS && !tables.modis) {
+        throw std::invalid_argument("the MODIS albedo is not loaded in the tables");
     }
 
-    // For the cloudy sky correction
-    Correction::Spectral lc(KATO_MAX + 1);
-    lc.fromFile(c);
-
-    Correction::Absorber water(c.h2odim, c.num_bands);
-    water.fromFile(c.path+c.clut_spec_h2o);
-
-    Correction::Absorber ozone(c.o3dim, c.num_bands);
-    ozone.fromFile(c.path+c.clut_spec_o3);
-
-    RTM monster(c.ggdim, c.ssadim, c.aoddim, c.num_bands);
-    monster.fromFile(c.path+c.clut_spec);
-    // ------ Done reading climatologies and lookup tables ---------
-
-
-    // Read climatologies
-    Climate climatologies = Climate(c, img.timestamp.month);
+    GroundAlbedo& alb = tables.alb;
+    ModisBrdf::ModisBrdfAlbedo& modis = tables.modis_albedo;
+    Correction::Spectral& lc = tables.lc;
+    Correction::Absorber& water = tables.water;
+    Correction::Absorber& ozone = tables.ozone;
+    RTM& monster = tables.monster;
+    Climate& climatologies = tables.climatologies;
 
     // Optional input fields, which override the climatologies per pixel
     const bool use_inputs = inputs.request.any();

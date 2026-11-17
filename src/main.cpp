@@ -70,7 +70,9 @@ int main(int argc, char* argv[]) {
     inputs.load(paths, geo);
     inputs.check();
 
-    MagicRun run = runMagic(c, img, geo, albedo_source, inputs);
+    MagicTables tables(c, img.info.subsatellite_longitude_deg, img.timestamp.month,
+        albedo_source == AlbedoType::MODIS);
+    MagicRun run = runMagic(c, img, geo, tables, albedo_source, inputs);
 
     // Output information to file, recording which input fields were used
     run.radiation.toFile(img.timestamp, geo, c, run.attributes);

@@ -109,10 +109,14 @@ def run(image, *, aerosol=None, ozone=None, water_vapour=None, albedo_vis=None, 
     if "land" in given and "albedo_vis" not in given:
         raise ValueError("land is the land mask of the albedo input, so it needs albedo_vis and albedo_nir")
 
+    # The tables are read once for the images of a month, and the daily inputs regridded once
+    # for the images of a day
+    session = _magic.Session(f"{home}/", satellite, albedo, grid_definition(grid) if grid is not None else None)
+    daily = {}
+
     def run_one(one):
         counts, resolution, when, channel = reader.image_counts(one)
-        return run_image(counts, resolution, when, channel, given, lat, lon,
-                         albedo=albedo, strict=strict, grid=grid, satellite=satellite, home=home)
+        return run_image(session, counts, resolution, when, channel, given, lat, lon, strict, daily)
 
     series = [dim for dim in image.dims if dim not in ("y", "x")]
     if not series:
@@ -123,27 +127,40 @@ def run(image, *, aerosol=None, ozone=None, water_vapour=None, albedo_vis=None, 
     return join_series([run_one(image.isel({series[0]: i})) for i in range(image.sizes[series[0]])])
 
 
-def run_image(counts, resolution, when, channel, given, lat, lon, *, albedo, strict, grid, satellite, home):
+def run_image(session, counts, resolution, when, channel, given, lat, lon, strict, daily):
     """
     One image through magic: the output as a Dataset, and the day pixel counts behind its
-    usage attributes.
+    usage attributes. daily keeps the daily inputs (albedo, land) of the image's day, as the
+    images of a day all use the same slice of them.
     """
+    if daily.get("day") != when.date():
+        daily.clear()
+        daily["day"] = when.date()
+
     # An input that cannot be put on the output grid is handed to magic as a problem, which
     # falls back to the climatology, or stops the run if strict, as for the CLI's files
     fields, problems = {}, {}
     for kind, da in given.items():
-        try:
-            fields[kind] = _regrid_input(da, kind, np.datetime64(when, "s"), lat, lon)
-        except ValueError as e:
-            problems[KINDS[kind]["name"]] = f"{kind}: {e}"
+        if kind in daily:
+            field, problem = daily[kind]
+        else:
+            try:
+                field, problem = _regrid_input(da, kind, np.datetime64(when, "s"), lat, lon), None
+            except ValueError as e:
+                field, problem = None, f"{kind}: {e}"
+            if KINDS[kind]["daily"]:
+                daily[kind] = field, problem
+        if problem:
+            problems[KINDS[kind]["name"]] = problem
+        else:
+            fields[kind] = field
     if "albedo_vis" in fields and "land" not in given:
         fields["land"] = all_land(fields["albedo_vis"])
 
     arrays = {f.name: (np.ascontiguousarray(f.values, dtype=np.float32), f.attrs["provenance"])
               for f in fields.values()}
-    raw = _magic.run(f"{home}/", channel, satellite, counts, resolution,
-                     (when.year, when.month, when.day, when.hour, when.minute), arrays, problems, albedo, strict,
-                     grid_definition(grid) if grid is not None else None)
+    raw = session.run(channel, counts, resolution, (when.year, when.month, when.day, when.hour, when.minute),
+                      arrays, problems, strict)
 
     out = xr.Dataset({name: (("lat", "lon"), raw[name], {"units": units}) for name, units in OUTPUT_UNITS.items()},
                      coords={"lat": raw["lat"], "lon": raw["lon"], "time": np.datetime64(when, "ns")},
