@@ -2,6 +2,7 @@
 // given from memory, through the same runMagic as the CLI. The Python package (specmagic)
 // prepares the arrays; see python/specmagic/__init__.py.
 
+#include <cstdint>
 #include <cstdio>
 #include <map>
 #include <optional>
@@ -104,6 +105,16 @@ static py::dict run(const std::string& home, const std::string& channel, const s
     py::dict attributes;
     for (const auto& [key, value] : result.attributes) attributes[py::str(key)] = value;
 
+    // The day pixel counts behind each usage attribute, so that a series can be summed
+    py::dict usage;
+    auto tally = [](const InputFields::Tally& t) {
+        return py::make_tuple(t.input, t.climatology, t.clipped, t.water);
+    };
+    if (inputs.request.aerosol) usage["aod_usage"] = tally(result.usage.aod);
+    if (inputs.request.ozone) usage["o3_usage"] = tally(result.usage.o3);
+    if (inputs.request.water_vapour) usage["h2o_usage"] = tally(result.usage.h2o);
+    if (inputs.request.albedo) usage["albedo_usage"] = tally(result.usage.albedo);
+
     py::dict out;
     out["GHI"] = toNumpy(result.radiation.GHI);
     out["DNI"] = toNumpy(result.radiation.DNI);
@@ -112,6 +123,7 @@ static py::dict run(const std::string& home, const std::string& channel, const s
     out["lat"] = toNumpy(geo.lat, geo.nlat);
     out["lon"] = toNumpy(geo.lon, geo.nlon);
     out["attributes"] = attributes;
+    out["usage"] = usage;
     out["loop_seconds"] = result.loop_seconds;
     return out;
 }
@@ -121,5 +133,10 @@ PYBIND11_MODULE(_magic, m) {
     m.def("run", &run, py::arg("home"), py::arg("channel"), py::arg("satellite"), py::arg("counts"),
         py::arg("resolution"), py::arg("start"), py::arg("fields"), py::arg("problems"), py::arg("albedo"),
         py::arg("strict"), py::arg("grid"));
+    m.def("usage_summary",
+        [](uint64_t input, uint64_t climatology, uint64_t clipped, uint64_t water, bool albedo) {
+            return InputFields::Inputs::summary(InputFields::Tally{input, climatology, clipped, water}, albedo);
+        },
+        py::arg("input"), py::arg("climatology"), py::arg("clipped"), py::arg("water"), py::arg("albedo"));
     m.def("output_grid", &outputGridAxes, py::arg("home"), py::arg("satellite"), py::arg("grid"));
 }

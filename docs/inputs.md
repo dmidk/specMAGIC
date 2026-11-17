@@ -278,7 +278,8 @@ builds it again when the C++ sources change (`[tool.uv] cache-keys` in `pyprojec
 
 **The image** is the channel as satpy gives it: named after the channel (in the attribute
 `name`, as satpy does, or as the DataArray's name), with the attributes `resolution` and
-`calibration`, and a start time (attribute or coordinate `start_time`). It can come straight
+`calibration`, and a start time (a coordinate `start_time` or `time`, or else the attribute
+`start_time`). It can come straight
 from the L1c files, with no file written in between:
 
     import glob, hdf5plugin
@@ -296,6 +297,16 @@ otherwise empty full disc. The output grid must then lie inside the crop. Counts
 the radiance calibration, as in the files `preprocessMTG.py` writes, must be opened with
 `xr.open_dataset(path, mask_and_scale=False)`; otherwise xarray unpacks them to radiance, and
 `specmagic.run` refuses the image.
+
+**A series of images** is an image with one more dimension, e.g. all images of a day:
+
+    out = specmagic.run(image.sel(start_time="2025-03-13"), aerosol=cams.aod550,
+                        **specmagic.lsasaf_albedo(lsasaf))
+
+Each image is run in turn, with the input slices for its own time, exactly as if it were run
+alone, and the output has a `time` dimension. The images of one day share that day's LSA SAF
+albedo, with its age limit, as each one would alone. The attributes are joined as described
+under [provenance](#provenance-in-the-output-files).
 
 **The output grid** is that of `magic-config.asc`, or `grid=(lat_min, lat_max, lon_min,
 lon_max, resolution)`. Python gets its coordinates from the C++ code
@@ -390,6 +401,11 @@ was given but not usable, the attribute names what was used instead, ending in
 `(input missing)`, such as `aerosol climatology (input missing)`.
 
 The usage attributes count the day pixels, since night and invalid pixels use no inputs.
+
+For a series of images from `specmagic.run`, the usage attributes count the day pixels of all
+the images together, so an image with more day pixels weighs more. The source attributes and
+`input_problems`, which differ from image to image, are coordinates along `time` instead of
+global attributes (`""` for an image without problems).
 
 * `aod_usage`, `o3_usage` and `h2o_usage`, e.g. `20.0% input, 80.0% climatology, 0.0% clipped
   to LUT`. "input" and "climatology" add up to 100%. "clipped to LUT" is the share whose

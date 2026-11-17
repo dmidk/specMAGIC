@@ -72,11 +72,14 @@ def write_image(image, directory, satellite="mtg"):
 def run(image, *, aerosol=None, ozone=None, water_vapour=None, albedo_vis=None, albedo_nir=None, land=None,
         albedo="LANDMAP", strict=False, grid=None, satellite="mtg", home=None):
     """
-    Runs specMAGIC on one image, and returns GHI, DNI, CAL and CSR on the output grid.
+    Runs specMAGIC on an image, or a series of them, and returns GHI, DNI, CAL and CSR on the
+    output grid.
 
     image: the satellite channel as satpy gives it, named after the channel, with the
         attributes resolution and calibration ("counts", or "reflectance" for MTG), and a
-        start time; the full disc, or a crop of it with its x/y coordinates.
+        start time; the full disc, or a crop of it with its x/y coordinates. With one more
+        dimension, e.g. start_time, it is a series: each image is run in turn, and the
+        output has a time dimension (see join_series).
     aerosol, ozone, water_vapour: optional fields that replace the climatologies, e.g. CAMS
         aod550 and gtco3, and DINI wvint. Pixels without a value use the climatology.
     albedo_vis, albedo_nir, land: an optional black-sky albedo for the local noon, as from
@@ -90,12 +93,12 @@ def run(image, *, aerosol=None, ozone=None, water_vapour=None, albedo_vis=None, 
         magic-config.asc.
     home: the directory with magic-config.asc, luts, climatologies and satellites.
 
-    Each input can be on its own grid with a time dimension: the slice for the image is
+    Each input can be on its own grid with a time dimension: the slice for each image is
     picked and regridded as in regrid_input. Fields already on the output grid (dims lat,
     lon) are used as they are.
     """
     home = Path(home) if home else default_home()
-    counts, resolution, when, channel = satellite_image(satellite).image_counts(image)
+    reader = satellite_image(satellite)
     lat, lon = output_grid(home, satellite, grid)
 
     given = {"aerosol": aerosol, "ozone": ozone, "water_vapour": water_vapour,
@@ -106,6 +109,25 @@ def run(image, *, aerosol=None, ozone=None, water_vapour=None, albedo_vis=None, 
     if "land" in given and "albedo_vis" not in given:
         raise ValueError("land is the land mask of the albedo input, so it needs albedo_vis and albedo_nir")
 
+    def run_one(one):
+        counts, resolution, when, channel = reader.image_counts(one)
+        return run_image(counts, resolution, when, channel, given, lat, lon,
+                         albedo=albedo, strict=strict, grid=grid, satellite=satellite, home=home)
+
+    series = [dim for dim in image.dims if dim not in ("y", "x")]
+    if not series:
+        return run_one(image)[0]
+    if len(series) > 1:
+        raise ValueError(f"the image has the dimensions {image.dims}; expected y, x and at most one more, "
+                         "the time of a series")
+    return join_series([run_one(image.isel({series[0]: i})) for i in range(image.sizes[series[0]])])
+
+
+def run_image(counts, resolution, when, channel, given, lat, lon, *, albedo, strict, grid, satellite, home):
+    """
+    One image through magic: the output as a Dataset, and the day pixel counts behind its
+    usage attributes.
+    """
     # An input that cannot be put on the output grid is handed to magic as a problem, which
     # falls back to the climatology, or stops the run if strict, as for the CLI's files
     fields, problems = {}, {}
@@ -123,11 +145,31 @@ def run(image, *, aerosol=None, ozone=None, water_vapour=None, albedo_vis=None, 
                      (when.year, when.month, when.day, when.hour, when.minute), arrays, problems, albedo, strict,
                      grid_definition(grid) if grid is not None else None)
 
-    attrs = dict(raw["attributes"])
-
     out = xr.Dataset({name: (("lat", "lon"), raw[name], {"units": units}) for name, units in OUTPUT_UNITS.items()},
                      coords={"lat": raw["lat"], "lon": raw["lon"], "time": np.datetime64(when, "ns")},
-                     attrs=attrs)
+                     attrs=dict(raw["attributes"]))
+    for name in OUTPUT_UNITS:
+        out[name].encoding["_FillValue"] = FILL
+    return out, dict(raw["usage"])
+
+
+def join_series(runs):
+    """
+    The runs of a series of images joined along time. The usage attributes are over the day
+    pixels of all the images, so an image with more day pixels weighs more. What else differs
+    from image to image, the source of each input (with the time of the slice used) and any
+    input problems, becomes a coordinate along time; an image without problems has "".
+    """
+    out = xr.concat([ds for ds, _ in runs], dim="time", combine_attrs="drop")
+
+    totals = {}
+    for _, usage in runs:
+        for key, counts in usage.items():
+            totals[key] = [a + b for a, b in zip(totals.get(key, (0, 0, 0, 0)), counts)]
+    out.attrs = {key: _magic.usage_summary(*counts, albedo=key == "albedo_usage") for key, counts in totals.items()}
+
+    for key in dict.fromkeys(key for ds, _ in runs for key in ds.attrs if key not in totals):
+        out.coords[key] = ("time", [ds.attrs.get(key, "") for ds, _ in runs])
     for name in OUTPUT_UNITS:
         out[name].encoding["_FillValue"] = FILL
     return out

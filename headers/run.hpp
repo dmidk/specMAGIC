@@ -18,6 +18,9 @@ struct MagicRun {
     // Global attributes for the output: where the input fields came from
     std::vector<std::pair<std::string, std::string>> attributes;
 
+    // How many day pixels used each input, behind the usage attributes
+    InputFields::Usage usage;
+
     // Time spent in the loop over the pixels
     double loop_seconds = 0;
 

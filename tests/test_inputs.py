@@ -11,6 +11,7 @@ import xarray as xr
 from pyorbital.astronomy import sun_earth_distance_correction
 from pyproj import CRS, Transformer
 
+import specmagic
 from specmagic import lsasaf_albedo, satellite_image, write_inputs
 from specmagic._mtg import FULL_DISC_PIXELS, FILL, image_counts, to_counts
 from specmagic._inputs import candidates, forecast, positions, preferred_order, regrid, regrid_input, sample
@@ -190,6 +191,12 @@ def test_channel_from_satpy_attributes():
                          attrs={"name": "vis_06", "resolution": 2000, "calibration": "counts",
                                 "start_time": datetime(2026, 8, 23, 12)})
     assert image_counts(image)[3] == "vis_06"
+
+
+def test_image_with_two_more_dimensions_is_refused():
+    image = xr.DataArray(np.zeros((1, 1, 2, 2), np.int16), dims=("a", "b", "y", "x"))
+    with pytest.raises(ValueError, match="at most one more"):
+        specmagic.run(image)
 
 
 def test_other_satellites_are_refused():

@@ -293,6 +293,7 @@ MagicRun runMagic(Config& c, Image& img, Geography& geo, AlbedoType albedo_sourc
     if (use_inputs) {
         inputs.report(input_usage);
         run.attributes = inputs.describe(input_usage);
+        run.usage = input_usage;
     }
 
     return run;

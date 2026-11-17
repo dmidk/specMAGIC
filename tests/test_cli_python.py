@@ -226,3 +226,31 @@ def test_error_in_the_loop_is_a_python_exception(case):
     october = case.image.assign_attrs(start_time="2026-10-15 12:00:00")
     with pytest.raises(RuntimeError, match="outside"):
         specmagic.run(october, home=case.home, grid=(-68, -64, -20, 20, 0.5))
+
+
+## ------ A series of images ------
+
+def test_series_is_each_image_in_turn(case):
+    # The images keep the start_time attribute of the first, as a slice of a series does;
+    # their own time is the coordinate
+    times = np.array(["2026-06-21T12:00", "2026-06-21T17:00"], dtype="datetime64[ns]")
+    series = xr.concat([case.image.assign_coords(start_time=t) for t in times], dim="start_time")
+
+    # Water vapour for each image, the second without its eastern half
+    h2o = case.inputs["water_vapour"].assign_attrs(units="kg m-2")
+    h2o = xr.concat([h2o, h2o.where(h2o.lon < h2o.lon.mean())], dim="time").assign_coords(time=times)
+    inputs = {**case.inputs, "water_vapour": h2o}
+    out = specmagic.run(series, home=case.home, **inputs)
+
+    np.testing.assert_array_equal(out.time.values, times)
+    shares = []
+    for i in range(len(times)):
+        one = specmagic.run(series.isel(start_time=i), home=case.home, **inputs)
+        assert_outputs_equal(out.isel(time=i), one)
+        assert out.h2o_source.values[i] == one.attrs["h2o_source"]
+        shares.append(float(one.attrs["h2o_usage"].split("%")[0]))
+
+    # The usage is over the day pixels of both images, so it lies between theirs
+    assert shares[0] > shares[1]
+    assert shares[1] < float(out.attrs["h2o_usage"].split("%")[0]) < shares[0]
+    assert "h2o_source" not in out.attrs and out.h2o_source.values[0] != out.h2o_source.values[1]

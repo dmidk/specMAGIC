@@ -299,6 +299,26 @@ namespace InputFields {
             std::printf("[WARNING]: ========================================================\n\n");
         }
 
+        // The usage attribute of one input: the shares of the day pixels it covered
+        static std::string summary(const Tally& t, bool albedo) {
+            uint64_t total = t.input + t.climatology;
+            if (total == 0) return "no day pixels";
+
+            char buf[200];
+            if (albedo) {
+                std::snprintf(buf, sizeof buf,
+                    "%.1f%% of land day pixels from the input, %.1f%% land-use albedo; "
+                    "%.1f%% of all day pixels are water and use the land-use albedo",
+                    100. * t.input / total, 100. * t.climatology / total,
+                    100. * t.water / (total + t.water));
+            } else {
+                std::snprintf(buf, sizeof buf,
+                    "%.1f%% input, %.1f%% climatology, %.1f%% clipped to LUT",
+                    100. * t.input / total, 100. * t.climatology / total, 100. * t.clipped / total);
+            }
+            return buf;
+        }
+
     private:
 
         Field* field(const std::string& name) {
@@ -381,25 +401,6 @@ namespace InputFields {
         static double fallbackShare(const Tally& t) {
             uint64_t total = t.input + t.climatology;
             return total == 0 ? 0. : static_cast<double>(t.climatology) / total;
-        }
-
-        static std::string summary(const Tally& t, bool albedo) {
-            uint64_t total = t.input + t.climatology;
-            if (total == 0) return "no day pixels";
-
-            char buf[200];
-            if (albedo) {
-                std::snprintf(buf, sizeof buf,
-                    "%.1f%% of land day pixels from the input, %.1f%% land-use albedo; "
-                    "%.1f%% of all day pixels are water and use the land-use albedo",
-                    100. * t.input / total, 100. * t.climatology / total,
-                    100. * t.water / (total + t.water));
-            } else {
-                std::snprintf(buf, sizeof buf,
-                    "%.1f%% input, %.1f%% climatology, %.1f%% clipped to LUT",
-                    100. * t.input / total, 100. * t.climatology / total, 100. * t.clipped / total);
-            }
-            return buf;
         }
 
         static void report(const char* name, const Tally& t, bool albedo) {
