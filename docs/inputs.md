@@ -123,7 +123,8 @@ Surface albedo is consumed in two distinct places, at two different spectral res
   radiance a cloud-free pixel would show. This feeds the cloud index directly, so an albedo
   error here propagates into the retrieved cloud amount rather than just scaling the result.
 
-There are two interchangeable sources, selected by `--albedo` on the driver script and
+There are two interchangeable sources, selected by `--albedo-fallback` on the driver script
+(`albedo_fallback` in Python) and
 resolved by `Reflectivity::getBestKatoSurfaceAlbedo` and
 `Reflectivity::getBestSatelliteSurfaceAlbedo`.
 
@@ -153,10 +154,13 @@ are hardcoded per land class in `src/reflectivity.cpp`, with a separate formula 
 
 `climatologies/modis-brdf/` replaces **both** files above, deriving albedo from measured BRDF
 kernel weights rather than a class lookup. Only read when the driver is given
-`--albedo MODIS`; otherwise `ModisBrdf::ModisBrdfAlbedo` stays empty. The ten NetCDF files
+`--albedo-fallback MODIS-LANDMAP`; otherwise `ModisBrdf::ModisBrdfAlbedo` stays empty. The ten NetCDF files
 are fetched by `py_utils/download_MODIS_maps.py` and named
 `Climatology_monthly_BRDF_parameters_MODIS_MCD43C1_<source>.nc`, where `<source>` is `Band1`
-to `Band7`, `vis`, `nir` or `shortwave`.
+to `Band7`, `vis`, `nir` or `shortwave`. They are the gap-free monthly maps of MINES ParisTech
+(Blanc et al., [essd-2017-141](https://doi.org/10.5194/essd-2017-141), a preprint whose
+revision was not accepted), also used by CAMS's McClear and Heliosat-4: multiannual monthly
+means of MODIS MCD43C1 V005 over 2004-2011, completed where MODIS has no data.
 
 * Grid: 7200 x 3600, 0.05 degrees, by 12 months. Only the region covered by the output grid
   is read into memory.
@@ -176,11 +180,33 @@ can draw on different files for its clear-sky albedo and its cloud-index albedo.
 
 ### How the two sources combine
 
-MODIS is a preference, not a commitment. A pixel whose BRDF parameters are fill-valued, out
-of the loaded region, or non-finite yields no usable MODIS albedo, and that pixel falls back
-to the land-use albedo for that band. Since MCD43C1 is a land product, this is the normal
-case over water rather than an exceptional one, so a `--albedo MODIS` run is in practice a
-mixture: MODIS over land, land-use classes over sea.
+MODIS is a preference, not a commitment, hence the name `MODIS-LANDMAP`. A pixel whose BRDF
+parameters are fill-valued, out of the loaded region, or non-finite yields no usable MODIS
+albedo, and that pixel falls back to the land-use albedo for that band.
+
+**Water in the MODIS maps.** MCD43C1 itself covers only land, but the maps are complete,
+including over water, so in practice MODIS is used over both land and sea. According to Blanc
+et al., water pixels (from the MODIS land cover MCD12C1) were filled with one typical triplet
+per month and band: the most common `fiso`, `fvol`, `fgeo` of the few pure-water pixels that
+MODIS did retrieve, mostly between 45 S and 45 N. Coastal pixels mix it with the land value
+by their water fraction, and the remaining gaps were filled from neighbouring months and
+pixels. In the files, every sea pixel therefore has the same values, with `fvol` and `fgeo`
+0: for `vis`, `fiso` is 0.023 in January and 0.014 in June. This water albedo does not depend
+on the sun angle, unlike the land-use albedo's water class, whose `zenithCorrection` does. A
+`MODIS-LANDMAP` run therefore has a lower albedo over the sea, especially at low sun, than a
+`LANDMAP` run.
+
+With an [albedo input](#input-fields-for-the-time-of-the-image) such as LSA SAF's, each pixel
+takes the first of these that has a value:
+
+1. the albedo input;
+2. the MODIS albedo, with `--albedo-fallback MODIS-LANDMAP` (`albedo_fallback="MODIS-LANDMAP"`
+   in Python);
+3. the land-use albedo, which always has one.
+
+So `--albedo-fallback` chooses the albedo for the pixels where the albedo input has no
+value, and for every pixel when there is no albedo input. The land-use albedo always has a
+value, so it is always the last step.
 
 ## Cloud spectral response
 
@@ -388,7 +414,9 @@ Each variable must:
 
 NaN, or the variable's `_FillValue` or `missing_value`, marks pixels without a value. If the
 variable has a text attribute `provenance`, it is copied into the output files; otherwise
-the file's path is. `--albedo-file` cannot be combined with `--albedo MODIS`.
+the file's path is. With `--albedo-fallback MODIS-LANDMAP`, MODIS is used where the albedo
+file has no value
+(see [how the albedo sources combine](#how-the-two-sources-combine)).
 
 Such files can be made with any tool, or with the `specmagic` package from sources on
 other grids:
@@ -404,15 +432,18 @@ other grids:
 model. The visible one (0.4-0.7 um) is used for the Kato bands up to band 16 and for
 satellite channels below 700 nm, and the near-infrared one (0.7-4.0 um) otherwise. A pixel
 uses the albedo input only where both albedos have a value, so that it never mixes input and
-land-use albedo across bands. Every other pixel uses the land-use albedo.
+fallback albedo across bands. Every other pixel uses the fallback: the MODIS albedo with
+`albedo_fallback="MODIS-LANDMAP"` (`--albedo-fallback MODIS-LANDMAP`) where it has a value,
+and the land-use albedo otherwise
+(see [how the albedo sources combine](#how-the-two-sources-combine)).
 
 **The land mask** (`albedo_land`) changes no output value: the albedo input is used
-wherever it has a value, and the land-use albedo elsewhere, on land or not. The mask only
+wherever it has a value, and the fallback albedo elsewhere, on land or not. The mask only
 decides how pixels without an albedo input are reported:
 
 - over water (`albedo_land` 0) this is expected, since LSA SAF has no albedo there. They are
   counted as water.
-- over land it is a fallback to the land-use albedo. It is counted in `albedo_usage`, with a
+- over land it is a fallback to the MODIS or land-use albedo. It is counted in `albedo_usage`, with a
   warning when it exceeds 1% of the land day pixels.
 
 Without a land mask every pixel counts as land, so the sea counts as fallback.
@@ -441,7 +472,7 @@ linearly.
 read, a missing variable, a field not on the output grid, or in Python a source without a
 usable time or units. Then:
 
-- by default, the problem is reported, and the climatology (or land-use albedo) is used for
+- by default, the problem is reported, and the climatology (or the fallback albedo) is used for
   that input. The report is repeated at the end of the run.
 - with `--strict-inputs` (or `strict=True` in Python, which raises `RuntimeError`), the run
   stops instead.
@@ -492,7 +523,8 @@ The usage attributes count the day pixels, since night and invalid pixels use no
   input value lay outside the LUT axis and was clipped to it; these pixels are also counted
   under "input".
 * `albedo_usage`, e.g. `99.9% of land day pixels from the input, 0.1% land-use albedo; 53.0% of
-  all day pixels are water and use the land-use albedo`. The first two shares are of the land
+  all day pixels are water and use the land-use albedo`. With `"MODIS-LANDMAP"`, the fallback
+  is named `MODIS albedo (else land-use)` instead. The first two shares are of the land
   day pixels and add up to 100%. The last share is of all day pixels.
 
 The same lines are printed at the end of the run, prefixed with `[WARNING]:` when the

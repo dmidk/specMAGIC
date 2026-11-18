@@ -118,7 +118,7 @@ def write_image(image, directory, satellite="mtg"):
 
 
 def run(image, *, aerosol=None, ozone=None, water_vapour=None, albedo_vis=None, albedo_nir=None, land=None,
-        albedo="LANDMAP", strict=False, grid=None, satellite="mtg", home=None):
+        albedo_fallback="LANDMAP", strict=False, grid=None, satellite="mtg", home=None):
     """
     Run specMAGIC on a satellite image, or on a series of images.
 
@@ -192,8 +192,9 @@ def run(image, *, aerosol=None, ozone=None, water_vapour=None, albedo_vis=None, 
         - attrs: optionally ``max_age_days``, see below. Units are not checked.
         - values: fractions from 0 to 1. Values outside are dropped.
 
-        A pixel uses the albedo input where both albedos have a value, and the land-use
-        albedo everywhere else. Both are taken from the nearest pixel of the source.
+        A pixel uses the albedo input where both albedos have a value, and the fallback
+        albedo everywhere else (see ``albedo_fallback``). Both are taken from the nearest pixel of
+        the source.
 
         Age (optional): the coordinate ``age_days``, with the same dims as the albedo,
         gives the age of each value in days; a negative age means no value. The attribute
@@ -210,12 +211,19 @@ def run(image, *, aerosol=None, ozone=None, water_vapour=None, albedo_vis=None, 
 
         The mask changes no output value. It only decides how pixels without an albedo
         input are reported: on water this is expected (LSA SAF has no values over the
-        sea), on land it is a fallback to the land-use albedo, counted in
+        sea), on land it is a fallback to the MODIS or land-use albedo, counted in
         ``albedo_usage`` and warned about above 1%. Without a mask, every pixel counts as
         land, so the sea counts as fallback.
-    albedo : {"LANDMAP", "MODIS"}, default "LANDMAP"
-        The albedo to use where there is no albedo input. MODIS needs the MODIS maps to be
-        downloaded, and cannot be combined with an albedo input.
+    albedo_fallback : {"LANDMAP", "MODIS-LANDMAP"}, default "LANDMAP"
+        The albedo where there is no albedo input, which is every pixel if none is given:
+
+        - ``"LANDMAP"``: the land-use albedo.
+        - ``"MODIS-LANDMAP"``: the MODIS BRDF albedo for the current sun, and the land-use
+          albedo where MODIS has no value. Needs the MODIS maps to be downloaded.
+
+        So with an albedo input and ``"MODIS-LANDMAP"``, a pixel uses the albedo input, then
+        MODIS, then the land-use albedo. The land-use albedo always has a value, so it is
+        always last.
     strict : bool, default False
         If True, raise when a given input cannot be used at all. If False, that input falls
         back to the climatology, and the problem is reported and recorded in
@@ -254,8 +262,7 @@ def run(image, *, aerosol=None, ozone=None, water_vapour=None, albedo_vis=None, 
     ValueError
         If the image cannot be used (wrong dims, attributes or calibration, or two images
         of a series with the same time), if only one of ``albedo_vis`` and ``albedo_nir``
-        is given, if ``albedo`` is unknown, or if ``albedo="MODIS"`` is given together with
-        an albedo input.
+        is given, or if ``albedo_fallback`` is unknown.
     NotImplementedError
         If the satellite is not supported.
     RuntimeError
@@ -332,7 +339,7 @@ def run(image, *, aerosol=None, ozone=None, water_vapour=None, albedo_vis=None, 
 
     # What is the same for several images of a series is done once: the tables are read once
     # per month, and the inputs regridded once per slice of their source
-    session = _magic.Session(f"{home}/", satellite, albedo, grid_definition(grid) if grid is not None else None)
+    session = _magic.Session(f"{home}/", satellite, albedo_fallback, grid_definition(grid) if grid is not None else None)
     regridded = Regridded()
     done = set()
 
@@ -349,7 +356,7 @@ def run(image, *, aerosol=None, ozone=None, water_vapour=None, albedo_vis=None, 
 
     if not series:
         return run_one(image)[0]
-    return join_series([run_one(image.isel({series[0]: i})) for i in range(image.sizes[series[0]])])
+    return join_series([run_one(image.isel({series[0]: i})) for i in range(image.sizes[series[0]])], albedo_fallback)
 
 
 def run_image(session, counts, resolution, when, channel, given, lat, lon, strict, regridded):
@@ -381,7 +388,7 @@ def run_image(session, counts, resolution, when, channel, given, lat, lon, stric
     return out, dict(raw["usage"])
 
 
-def join_series(runs):
+def join_series(runs, albedo_fallback):
     """
     The runs of a series of images joined along time. The usage attributes are over the day
     pixels of all the images, so an image with more day pixels weighs more. What else differs
@@ -394,7 +401,8 @@ def join_series(runs):
     for _, usage in runs:
         for key, counts in usage.items():
             totals[key] = [a + b for a, b in zip(totals.get(key, (0, 0, 0, 0)), counts)]
-    out.attrs = {key: _magic.usage_summary(*counts, albedo=key == "albedo_usage") for key, counts in totals.items()}
+    out.attrs = {key: _magic.usage_summary(*counts, albedo_fallback=albedo_fallback if key == "albedo_usage" else None)
+                 for key, counts in totals.items()}
 
     for key in dict.fromkeys(key for ds, _ in runs for key in ds.attrs if key not in totals):
         out.coords[key] = ("time", [ds.attrs.get(key, "") for ds, _ in runs])

@@ -193,7 +193,7 @@ MagicRun runMagic(Config& c, Image& img, Geography& geo, MagicTables& tables, Al
 
                         // Add the albedo correction
                         Reflectivity::makeAlbedoCorrection(climatologies, clim, a, sun.cos_sza, sun.declination,
-                            albedo_source == AlbedoType::INPUT);
+                            inputs.request.albedo);
 
                         // Correction for an FCI measuring fault
                         SunGeometry::correctZenithAngle(sun);
@@ -296,8 +296,8 @@ MagicRun runMagic(Config& c, Image& img, Geography& geo, MagicTables& tables, Al
 
     // Record which input fields were used
     if (use_inputs) {
-        inputs.report(input_usage);
-        run.attributes = inputs.describe(input_usage);
+        inputs.report(input_usage, albedo_source);
+        run.attributes = inputs.describe(input_usage, albedo_source);
         run.usage = input_usage;
     }
 

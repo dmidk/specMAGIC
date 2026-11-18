@@ -169,16 +169,18 @@ data for this functionality, as the testing data includes only one image.
 ### MODIS BRDF albedo maps
 
 By default, specMAGIC uses some older landmaps whose resolution is coarse. It is also possible to use MODIS hi-res land albedo maps for the clearsky calculation. 
-These are too large to be stored here, but the user can toggle whether to download them using the `--albedo` keyword.
+These are too large to be stored here, but the user can toggle whether to download and use them with the `--albedo-fallback` option.
 
 ```
-./scripts/mtg.sh --albedo MODIS
+./scripts/mtg.sh --albedo-fallback MODIS-LANDMAP
 ```
 
 The total file size is ~ 6 GB. The download may take some minutes.
 A destination check is implemented, so that if the files are found to already exist in the correct directory, they will not be overwritten. 
 
-From Python, pass `albedo="MODIS"` to `specmagic.run` once the maps are downloaded (by the command above, or `uv run python py_utils/download_MODIS_maps.py climatologies/modis-brdf`).
+With an albedo input such as LSA SAF's (`--albedo-file`, or `albedo_vis` and `albedo_nir` in Python), MODIS is used where the input has no value, and the land-use albedo where MODIS has none either. The land-use albedo always has a value, so it is always the last step.
+
+From Python, pass `albedo_fallback="MODIS-LANDMAP"` to `specmagic.run` once the maps are downloaded (by the command above, or `uv run python py_utils/download_MODIS_maps.py climatologies/modis-brdf`).
 
 ### Input fields for the time of the image
 

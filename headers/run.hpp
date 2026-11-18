@@ -62,5 +62,6 @@ Geography outputGrid(Config& c, MAGIC_EXACT subsatellite_longitude_deg);
 // GHI, DNI, CAL and CSR of every pixel of the output grid. The input fields must already
 // have been loaded or set for that grid (InputFields::Inputs::load or set).
 // The tables must be those of the image's month, with MODIS loaded if albedo_source is MODIS.
+// albedo_source is the albedo where there is no albedo input: the land-use or MODIS albedo.
 MagicRun runMagic(Config& c, Image& img, Geography& geo, MagicTables& tables, AlbedoType albedo_source,
     InputFields::Inputs& inputs);

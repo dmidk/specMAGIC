@@ -26,6 +26,6 @@ enum class PixelState { Night = 0, Day = 1, Invalid = 99 };
 // To distinguish between GHI and DNI
 enum class IrradianceMode { Beam, Global };
 
-// The source of the albedo data being used
-// INPUT is an albedo field given for the time of the image (InputFields), such as LSA SAF's
-enum class AlbedoType { LANDMAP, MODIS, INPUT };
+// The albedo where there is no albedo input (InputFields, such as LSA SAF's): the land-use
+// albedo, or the MODIS BRDF albedo, which itself falls back to the land-use albedo
+enum class AlbedoType { LANDMAP, MODIS };

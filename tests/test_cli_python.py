@@ -11,6 +11,7 @@ import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
+import netCDF4
 import numpy as np
 import pytest
 import xarray as xr
@@ -32,8 +33,13 @@ pytestmark = pytest.mark.skipif(not MAGIC.exists(), reason=f"the CLI is not buil
 
 def make_home(home):
     """A home for magic: the repository's tables, a config with GRID, and output directories."""
-    for name in ("climatologies", "luts", "satellites"):
+    for name in ("luts", "satellites"):
         (home / name).symlink_to(REPO / name)
+    # The climatologies one by one, so that the tests can add MODIS maps without touching the repository
+    (home / "climatologies").mkdir()
+    for path in (REPO / "climatologies").iterdir():
+        if path.name != "modis-brdf":
+            (home / "climatologies" / path.name).symlink_to(path)
     for name in OUTPUTS:
         (home / "out" / name).mkdir(parents=True)
 
@@ -102,9 +108,9 @@ def without_inputs(case):
     return specmagic.run(case.image, home=case.home)
 
 
-def run_cli(case, files):
+def run_cli(case, files, albedo_fallback="LANDMAP"):
     """The CLI's outputs and their global attributes, for the given input files."""
-    env = {**os.environ, "SATELLITE": "mtg", "ALBEDO": "LANDMAP", "STRICT_INPUTS": "0", "OMP_NUM_THREADS": "4",
+    env = {**os.environ, "SATELLITE": "mtg", "ALBEDO_FALLBACK": albedo_fallback, "STRICT_INPUTS": "0", "OMP_NUM_THREADS": "4",
            "AEROSOL_FILE": str(files.get("aerosol", "")), "OZONE_FILE": str(files.get("ozone", "")),
            "WATER_VAPOUR_FILE": str(files.get("water_vapour", "")), "ALBEDO_FILE": str(files.get("albedo", ""))}
     subprocess.run([str(MAGIC), f"{case.home}/", "vis_06", "0"], cwd=case.home, env=env, check=True,
@@ -124,10 +130,10 @@ def assert_outputs_equal(a, b):
         np.testing.assert_array_equal(np.asarray(a[name]), np.asarray(b[name]), err_msg=name)
 
 
-def assert_same(case, inputs, files):
+def assert_same(case, inputs, files, albedo_fallback="LANDMAP"):
     """The CLI with the files and Python with the inputs give the same outputs and attributes."""
-    cli, cli_attrs = run_cli(case, files)
-    py = specmagic.run(case.image, home=case.home, **inputs)
+    cli, cli_attrs = run_cli(case, files, albedo_fallback)
+    py = specmagic.run(case.image, home=case.home, albedo_fallback=albedo_fallback, **inputs)
     assert_outputs_equal(py, cli)
     assert py.attrs == cli_attrs
     return py
@@ -281,3 +287,53 @@ def test_series_over_a_day_and_month_boundary(case):
         one = specmagic.run(series.isel(start_time=i), home=case.home, **inputs)
         assert_outputs_equal(out.isel(time=i), one)
         assert out.albedo_vis_source.values[i] == one.attrs["albedo_vis_source"]
+
+
+## ------ MODIS under the albedo input ------
+
+MODIS_SOURCES = ("Band1", "Band2", "Band3", "Band4", "Band5", "Band6", "Band7", "vis", "nir", "shortwave")
+
+
+@pytest.fixture(scope="module")
+def modis(case):
+    """
+    MODIS BRDF maps in the home, as magic reads them: (month, lon, lat) on the global 0.05
+    degree grid, in thousandths. An albedo of 0.35 in every band (fiso only), for June and
+    the latitudes around the output grid; the rest is fill.
+    """
+    directory = case.home / "climatologies" / "modis-brdf"
+    directory.mkdir()
+    for source in MODIS_SOURCES:
+        path = directory / f"Climatology_monthly_BRDF_parameters_MODIS_MCD43C1_{source}.nc"
+        with netCDF4.Dataset(path, "w") as nc:
+            for dim, size in (("month", 12), ("lon", 7200), ("lat", 3600)):
+                nc.createDimension(dim, size)
+            for name, value in (("FISO_MEAN", 350), ("FVOL_MEAN", 0), ("FGEO_MEAN", 0)):
+                var = nc.createVariable(name, "i2", ("month", "lon", "lat"), zlib=True,
+                                        chunksizes=(1, 720, 360), fill_value=32767)
+                var.set_auto_maskandscale(False)
+                var[5, :, 550:910] = value          # June, 44.5 to 62.5 N
+    return directory
+
+
+def albedo_inputs(case):
+    return {kind: case.inputs[kind] for kind in ("albedo_vis", "albedo_nir", "land")}
+
+
+def test_modis_is_the_fallback_under_the_albedo_input(case, modis):
+    inputs = albedo_inputs(case)
+    landmap = specmagic.run(case.image, home=case.home, **inputs)
+    with_modis = specmagic.run(case.image, home=case.home, albedo_fallback="MODIS-LANDMAP", **inputs)
+
+    # Where the input has an albedo, it is used whatever the fallback; elsewhere MODIS
+    # replaces the land-use albedo
+    has_input = np.isfinite(inputs["albedo_vis"].values) & np.isfinite(inputs["albedo_nir"].values)
+    np.testing.assert_array_equal(with_modis.GHI.values[has_input], landmap.GHI.values[has_input])
+    assert not np.array_equal(with_modis.GHI.values[~has_input], landmap.GHI.values[~has_input])
+    assert "MODIS albedo (else land-use)" in with_modis.attrs["albedo_usage"]
+    assert "land-use albedo" in landmap.attrs["albedo_usage"]
+
+
+def test_cli_and_python_agree_with_modis_under_the_albedo_input(case, modis):
+    assert_same(case, albedo_inputs(case), {"albedo": case.files["albedo"]},
+                albedo_fallback="MODIS-LANDMAP")

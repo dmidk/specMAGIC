@@ -14,7 +14,7 @@ HI_PRECISION=ON
 CHANNEL="vis_06"
 DEMO="${DEMO:-0}"              # 1 = use local demo data, 0 = user supplies MTG_RAW_DIR
 MTG_RAW_DIR="${MTG_RAW_DIR:-}"
-ALBEDO="${ALBEDO:-LANDMAP}"
+ALBEDO_FALLBACK="${ALBEDO_FALLBACK:-LANDMAP}"
 STRICT_INPUTS="${STRICT_INPUTS:-0}"   # 1 = stop if a given input file is not usable, instead of warning
 # Optional input fields for the time of the image, one NetCDF file per table on the output grid
 # (see docs/inputs.md). Pixels without a value in them use the climatology.
@@ -32,13 +32,17 @@ usage() {
     echo "Options:"
     echo "  --ref-time TIME       Reference time (not available in demo mode)"
     echo "  --channel CHANNEL     Satellite channel (default: $CHANNEL). Options: vis_04 vis_05 vis_06 vis_08 vis_09 nir_13 nir_16 nir_22 ir_38 wv_63 wv_73 ir_87 ir_97 ir_105 ir_123 ir_133"
-    echo "  --albedo ALBEDO       Albedo type (default: $ALBEDO). Options: LANDMAP MODIS"
+    echo "  --albedo-fallback ALBEDO_FALLBACK"
+    echo "                        The albedo where there is no albedo input (default: $ALBEDO_FALLBACK)."
+    echo "                        Options: LANDMAP (land-use albedo), MODIS-LANDMAP (MODIS albedo,"
+    echo "                        and land-use where MODIS has none)"
     echo "  --aerosol-file FILE   Aerosol optical depth for the image's time, instead of the climatology"
     echo "  --ozone-file FILE     Ozone for the image's time, instead of the climatology"
     echo "  --water-vapour-file FILE"
     echo "                        Water vapour for the image's time, instead of the climatology"
     echo "  --albedo-file FILE    Black-sky albedo at local noon, e.g. from LSA SAF, instead of the"
-    echo "                        land-use albedo. The input files must be on the output grid; see"
+    echo "                        --albedo-fallback albedo where it has a value. The input files must be on"
+    echo "                        the output grid; see"
     echo "                        docs/inputs.md"
     echo "  --strict-inputs       Stop if a given input file is not usable, instead of warning and"
     echo "                        falling back to the climatologies"
@@ -82,8 +86,8 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
 
-        --albedo)
-            ALBEDO="$2"
+        --albedo-fallback)
+            ALBEDO_FALLBACK="$2"
             shift 2
             ;;
 
@@ -171,20 +175,15 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-case "$ALBEDO" in
-    LANDMAP|MODIS)
+case "$ALBEDO_FALLBACK" in
+    LANDMAP|MODIS-LANDMAP)
         ;;
     *)
-        echo "Error: invalid albedo type '$ALBEDO'."
-        echo "Valid options are: LANDMAP, MODIS."
+        echo "Error: invalid albedo fallback '$ALBEDO_FALLBACK'."
+        echo "Valid options are: LANDMAP, MODIS-LANDMAP."
         exit 1
         ;;
 esac
-
-if [[ -n "$ALBEDO_FILE" && "$ALBEDO" == "MODIS" ]]; then
-    echo "Error: --albedo MODIS and --albedo-file cannot be used together."
-    exit 1
-fi
 
 # Check for ref time
 # In demo mode, the time is fixed, so the user should not pass a time
@@ -287,7 +286,7 @@ if [[ "$REBUILD" == "1" ]]; then
     cd "$ROOT"
 fi
 
-if [[ "$ALBEDO" == "MODIS" ]]; then
+if [[ "$ALBEDO_FALLBACK" == "MODIS-LANDMAP" ]]; then
     echo "Downloading MODIS data..."
     uv run python py_utils/download_MODIS_maps.py climatologies/modis-brdf
 fi
@@ -296,7 +295,7 @@ fi
 
 export OMP_NUM_THREADS=8
 export AEROSOL_FILE OZONE_FILE WATER_VAPOUR_FILE ALBEDO_FILE STRICT_INPUTS
-export ALBEDO=$ALBEDO
+export ALBEDO_FALLBACK=$ALBEDO_FALLBACK
 echo "Calling magic..."
 
 ## Run C++ driver
