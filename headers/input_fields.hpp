@@ -252,26 +252,31 @@ namespace InputFields {
         }
 
         // For the global attributes of the output files: where every given input came from
-        std::vector<std::pair<std::string, std::string>> describe(const Usage& u) const {
+        // The albedo where the albedo input has no value, as the report names it
+        static const char* albedoFallback(AlbedoType fallback) {
+            return fallback == AlbedoType::MODIS ? "MODIS albedo (else land-use)" : "land-use albedo";
+        }
+
+        std::vector<std::pair<std::string, std::string>> describe(const Usage& u, AlbedoType albedo_fallback) const {
 
             std::vector<std::pair<std::string, std::string>> attrs;
 
             if (request.aerosol) {
                 attrs.emplace_back("aod_source", source(aod, "aerosol climatology"));
-                attrs.emplace_back("aod_usage", summary(u.aod, false));
+                attrs.emplace_back("aod_usage", summary(u.aod, nullptr));
             }
             if (request.ozone) {
                 attrs.emplace_back("o3_source", source(o3, "ozone climatology"));
-                attrs.emplace_back("o3_usage", summary(u.o3, false));
+                attrs.emplace_back("o3_usage", summary(u.o3, nullptr));
             }
             if (request.water_vapour) {
                 attrs.emplace_back("h2o_source", source(h2o, "water vapour climatology"));
-                attrs.emplace_back("h2o_usage", summary(u.h2o, false));
+                attrs.emplace_back("h2o_usage", summary(u.h2o, nullptr));
             }
             if (request.albedo) {
-                attrs.emplace_back("albedo_vis_source", source(albedo_vis, "land-use albedo"));
-                attrs.emplace_back("albedo_nir_source", source(albedo_nir, "land-use albedo"));
-                attrs.emplace_back("albedo_usage", summary(u.albedo, true));
+                attrs.emplace_back("albedo_vis_source", source(albedo_vis, albedoFallback(albedo_fallback)));
+                attrs.emplace_back("albedo_nir_source", source(albedo_nir, albedoFallback(albedo_fallback)));
+                attrs.emplace_back("albedo_usage", summary(u.albedo, albedoFallback(albedo_fallback)));
             }
 
             std::string all;
@@ -283,12 +288,12 @@ namespace InputFields {
 
         // After the run: where the inputs came from, and again every problem, so that a
         // run that fell back is hard to miss
-        void report(const Usage& u) const {
+        void report(const Usage& u, AlbedoType albedo_fallback) const {
 
-            if (request.aerosol) report("aod", u.aod, false);
-            if (request.ozone) report("o3", u.o3, false);
-            if (request.water_vapour) report("h2o", u.h2o, false);
-            if (request.albedo) report("albedo", u.albedo, true);
+            if (request.aerosol) report("aod", u.aod, nullptr);
+            if (request.ozone) report("o3", u.o3, nullptr);
+            if (request.water_vapour) report("h2o", u.h2o, nullptr);
+            if (request.albedo) report("albedo", u.albedo, albedoFallback(albedo_fallback));
 
             if (problems.empty()) return;
 
@@ -297,6 +302,28 @@ namespace InputFields {
             std::printf("[WARNING]: These given inputs fell back to the climatologies.\n");
             std::printf("[WARNING]: Run with --strict-inputs to stop instead.\n");
             std::printf("[WARNING]: ========================================================\n\n");
+        }
+
+        // The usage attribute of one input: the shares of the day pixels it covered. For the
+        // albedo, albedo_fallback names the albedo used where the input has none; nullptr
+        // for the other inputs.
+        static std::string summary(const Tally& t, const char* albedo_fallback) {
+            uint64_t total = t.input + t.climatology;
+            if (total == 0) return "no day pixels";
+
+            char buf[200];
+            if (albedo_fallback) {
+                std::snprintf(buf, sizeof buf,
+                    "%.1f%% of land day pixels from the input, %.1f%% %s; "
+                    "%.1f%% of all day pixels are water and use the %s",
+                    100. * t.input / total, 100. * t.climatology / total, albedo_fallback,
+                    100. * t.water / (total + t.water), albedo_fallback);
+            } else {
+                std::snprintf(buf, sizeof buf,
+                    "%.1f%% input, %.1f%% climatology, %.1f%% clipped to LUT",
+                    100. * t.input / total, 100. * t.climatology / total, 100. * t.clipped / total);
+            }
+            return buf;
         }
 
     private:
@@ -383,30 +410,11 @@ namespace InputFields {
             return total == 0 ? 0. : static_cast<double>(t.climatology) / total;
         }
 
-        static std::string summary(const Tally& t, bool albedo) {
-            uint64_t total = t.input + t.climatology;
-            if (total == 0) return "no day pixels";
-
-            char buf[200];
-            if (albedo) {
-                std::snprintf(buf, sizeof buf,
-                    "%.1f%% of land day pixels from the input, %.1f%% land-use albedo; "
-                    "%.1f%% of all day pixels are water and use the land-use albedo",
-                    100. * t.input / total, 100. * t.climatology / total,
-                    100. * t.water / (total + t.water));
-            } else {
-                std::snprintf(buf, sizeof buf,
-                    "%.1f%% input, %.1f%% climatology, %.1f%% clipped to LUT",
-                    100. * t.input / total, 100. * t.climatology / total, 100. * t.clipped / total);
-            }
-            return buf;
-        }
-
-        static void report(const char* name, const Tally& t, bool albedo) {
+        static void report(const char* name, const Tally& t, const char* albedo_fallback) {
             if (t.input + t.climatology + t.water == 0) return;
 
             const char* level = fallbackShare(t) > FALLBACK_WARNING_SHARE ? "[WARNING]: " : "";
-            std::printf("%sInput %s: %s \n", level, name, summary(t, albedo).c_str());
+            std::printf("%sInput %s: %s \n", level, name, summary(t, albedo_fallback).c_str());
         }
 
         static bool sameAxis(const double* file_axis, const MAGIC_EXACT* geo_axis, unsigned int n) {

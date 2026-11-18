@@ -11,9 +11,11 @@ import xarray as xr
 from pyorbital.astronomy import sun_earth_distance_correction
 from pyproj import CRS, Transformer
 
+import specmagic
 from specmagic import lsasaf_albedo, satellite_image, write_inputs
 from specmagic._mtg import FULL_DISC_PIXELS, FILL, image_counts, to_counts
-from specmagic._inputs import candidates, forecast, positions, preferred_order, regrid, regrid_input, sample
+from specmagic._inputs import (Regridded, candidates, forecast, positions, preferred_order, regrid, regrid_input,
+                               sample)
 
 HOUR = np.timedelta64(1, "h")
 LAT, LON = np.arange(50.0, 56.0, 0.5), np.arange(5.0, 15.0, 0.5)
@@ -44,7 +46,7 @@ def test_window():
 def test_daily_never_later():
     days = np.arange(np.datetime64("2026-08-20"), np.datetime64("2026-08-25")).astype("datetime64[ns]")
     da = xr.DataArray(np.zeros((5, 2, 2)), dims=("time", "y", "x"), coords={"time": days})
-    labels = [label for _, label in candidates(da, np.datetime64("2026-08-23T13:40", "s"), daily=True)]
+    labels = [label for _, label, _ in candidates(da, np.datetime64("2026-08-23T13:40", "s"), daily=True)]
     assert labels == [f"day 2026-08-{d}" for d in (23, 22, 21, 20)]
 
 
@@ -53,7 +55,7 @@ def test_newest_run_for_the_nearest_valid_time():
     steps = np.arange(4).astype("timedelta64[h]").astype("timedelta64[ns]")
     da = xr.DataArray(np.zeros((2, 4, 2, 2)), dims=("forecast_reference_time", "step", "y", "x"),
                       coords={"forecast_reference_time": runs, "step": steps})
-    _, label = next(candidates(da, np.datetime64("2026-08-23T12:10", "s"), daily=False))
+    _, label, _ = next(candidates(da, np.datetime64("2026-08-23T12:10", "s"), daily=False))
     assert label == "run 2026-08-23T11:00 +1 h, valid 2026-08-23T12:00"
 
 
@@ -62,7 +64,7 @@ def test_forecast_along_the_time_axis():
     da = xr.DataArray(np.zeros((1, 2, 2)), dims=("valid_time", "y", "x"),
                       coords={"valid_time": times, "forecast_reference_time": ("valid_time", times - HOUR),
                               "forecast_period": ("valid_time", [HOUR])})
-    _, label = next(candidates(da, np.datetime64("2026-08-23T12:00", "s"), daily=False))
+    _, label, _ = next(candidates(da, np.datetime64("2026-08-23T12:00", "s"), daily=False))
     assert label == "run 2026-08-23T11:00 +1 h, valid 2026-08-23T12:00"
 
 
@@ -156,6 +158,39 @@ def test_lsasaf_albedo_drops_old_pixels():
     np.testing.assert_array_equal(land.values, 1)
 
 
+def test_albedo_age_counts_the_days_to_the_image():
+    def albedo_with_age(day_before):
+        ds = lsasaf_dataset()
+        ages = np.r_[[np.full((400, 400), day_before)], [np.full((400, 400), 20)]].astype(np.int8)
+        return lsasaf_albedo(ds.assign(Z_Age=(ds.Z_Age.dims, ages)))["albedo_vis"]
+
+    # 10 days old in its own product is fine on its own day, but 11 days old on the next day,
+    # when the next day's product is too old; 127 (int8, as LSA SAF stores it) must not wrap
+    # around when the day is added
+    on_its_day = regrid_input(albedo_with_age(10), "albedo_vis", np.datetime64("2026-08-22T12:00", "s"), LAT, LON)
+    np.testing.assert_allclose(on_its_day.values, 0.2)
+    for day_before in (10, 127):
+        with pytest.raises(ValueError, match="no value"):
+            regrid_input(albedo_with_age(day_before), "albedo_vis", np.datetime64("2026-08-23T12:00", "s"), LAT, LON)
+
+
+def test_series_shares_a_slice_and_the_positions():
+    times = np.array(["2026-08-23T12:00", "2026-08-23T13:00"], dtype="datetime64[ns]")
+    da = xr.DataArray(np.stack([np.ones((2, 2)), np.full((2, 2), 2.0)]), dims=("time", "latitude", "longitude"),
+                      name="aod550", coords={"time": times, "latitude": [40.0, 60.0], "longitude": [0.0, 20.0]})
+    regridded = Regridded()
+
+    def field(when):
+        regridded.next_image()
+        return regrid_input(da, "aerosol", np.datetime64(when, "s"), LAT, LON, regridded).values
+
+    first, again, later = field("2026-08-23T12:00"), field("2026-08-23T12:10"), field("2026-08-23T13:00")
+    assert again is first                    # the 12:00 slice, regridded once
+    np.testing.assert_allclose(later, 2.0)   # the 13:00 slice
+    assert list(regridded.located) == ["aerosol"]
+    assert list(regridded.current) == [("aerosol", "valid 2026-08-23T13:00")]
+
+
 def test_albedo_file_gets_a_land_mask(tmp_path):
     vis = xr.DataArray(np.full((2, 3), 0.2, np.float32), dims=("lat", "lon"), name="albedo_vis",
                        coords={"lat": [1.0, 2.0], "lon": [1.0, 2.0, 3.0]}, attrs={"provenance": "v"})
@@ -190,6 +225,13 @@ def test_channel_from_satpy_attributes():
                          attrs={"name": "vis_06", "resolution": 2000, "calibration": "counts",
                                 "start_time": datetime(2026, 8, 23, 12)})
     assert image_counts(image)[3] == "vis_06"
+
+
+def test_image_with_two_more_dimensions_is_refused():
+    # Before anything is read, so no home is needed
+    image = xr.DataArray(np.zeros((1, 1, 2, 2), np.int16), dims=("a", "b", "y", "x"))
+    with pytest.raises(ValueError, match="at most one more"):
+        specmagic.run(image, home="/nonexistent")
 
 
 def test_other_satellites_are_refused():

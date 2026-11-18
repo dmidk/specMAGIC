@@ -5,23 +5,20 @@
 #include "types.hpp"
 
 
-// To choose the type of albedo we want data from
-inline AlbedoType parseAlbedoSource(){
+// The albedo where there is no albedo input: "LANDMAP", the land-use albedo, or
+// "MODIS-LANDMAP", the MODIS albedo and the land-use albedo where MODIS has no value
+inline AlbedoType parseAlbedoFallback(const std::string& name) {
 
-    const char* env = std::getenv("ALBEDO");
+    if (name == "LANDMAP") return AlbedoType::LANDMAP;
+    if (name == "MODIS-LANDMAP") return AlbedoType::MODIS;
+    throw std::invalid_argument("unknown albedo fallback " + name + "; expected LANDMAP or MODIS-LANDMAP");
+}
 
-    if (!env || std::string(env) == "LANDMAP") {
-        return AlbedoType::LANDMAP;
-    }
+// The albedo fallback of the CLI, from the environment variable ALBEDO_FALLBACK
+inline AlbedoType albedoFallbackFromEnv() {
 
-    if (std::string(env) == "MODIS") {
-        return AlbedoType::MODIS;
-    }
-
-    throw std::runtime_error(
-        "Unknown ALBEDO: " + std::string(env)
-    );
-
+    const char* env = std::getenv("ALBEDO_FALLBACK");
+    return parseAlbedoFallback(env ? env : "LANDMAP");
 }
 
 // Whether an environment variable is set to 1

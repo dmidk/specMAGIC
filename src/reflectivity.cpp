@@ -186,82 +186,53 @@ namespace Reflectivity {
 
     }
 
-    MAGIC_REAL getBestKatoSurfaceAlbedo(Climate& climatologies, Area a, AlbedoType alb_source, GroundAlbedo& alb,
+    // The albedo of a pixel, from the best source that has one: the albedo input (for the
+    // noon sun, moved to the current one), then the MODIS BRDF albedo if it is the fallback,
+    // then the land-use albedo, which always has one. MODIS can lack a value (fill, or
+    // outside the loaded region), so the land-use albedo must always be reachable.
+    static MAGIC_REAL bestAlbedo(MAGIC_REAL input_albedo, MAGIC_REAL noon_correction, AlbedoType fallback,
+        MAGIC_REAL modis_albedo) {
+
+        if (input_albedo >= 0) return std::min(input_albedo * noon_correction, (MAGIC_REAL) 1);
+        if (fallback == AlbedoType::MODIS && modis_albedo >= (MAGIC_REAL)0 && modis_albedo <= (MAGIC_REAL)1) {
+            return modis_albedo;
+        }
+        return -1;
+    }
+
+    MAGIC_REAL getBestKatoSurfaceAlbedo(Climate& climatologies, Area a, AlbedoType fallback, GroundAlbedo& alb,
        const ModisBrdf::ModisBrdfAlbedo& modis, const InputFields::Inputs& inputs, int band, MAGIC_REAL cos_sza, MAGIC_REAL fallback_correction,
        MAGIC_REAL noon_correction) {
 
-        // This structure should be future proof for other albedo types, but we MUST default to the landmap
-        // if smething is wrong. Otherwise big errors
+        // -1 where there is no albedo input, or where it is not given
+        MAGIC_REAL input_albedo = inputs.getKatoAlbedo(band, a);
+        MAGIC_REAL modis_albedo = (input_albedo < 0 && fallback == AlbedoType::MODIS)
+            ? modis.getKatoAlbedo(band, a, cos_sza) : (MAGIC_REAL)-1;
 
-        MAGIC_REAL result = -1;
-
-        if (alb_source == AlbedoType::MODIS) { 
-        
-            MAGIC_REAL modis_albedo = modis.getKatoAlbedo(band, a, cos_sza);
-
-            if (modis_albedo >= (MAGIC_REAL)0 && modis_albedo <= (MAGIC_REAL)1) {
-                result = modis_albedo;
-            } 
-        
-        } else if (alb_source == AlbedoType::INPUT) {
-
-            // Finished albedos for the noon sun, so no BRDF. -1 where there is no value.
-            result = inputs.getKatoAlbedo(band, a);
-            if (result >= 0) result = std::min(result * noon_correction, (MAGIC_REAL) 1);
-
-        }
-
-        // Fall back to the land-use albedo if the landmap was asked for, or if the
-        // preferred source did not yield a sensible value. This test must sit outside
-        // the branch above: MODIS has no data over water, so on that path an
-        // unusable value is the common case, not the exceptional one.
-        if (result < 0) {
-
-            result = getSurfaceAlbedo(climatologies, a, alb, band) * fallback_correction;
-            
-        } 
-
+        MAGIC_REAL result = bestAlbedo(input_albedo, noon_correction, fallback, modis_albedo);
+        if (result < 0) result = getSurfaceAlbedo(climatologies, a, alb, band) * fallback_correction;
         return result;
-
-    
     }
 
-    MAGIC_REAL getBestSatelliteSurfaceAlbedo(Climate& climatologies, Area a, AlbedoType alb_source, GroundAlbedo& alb,
+    MAGIC_REAL getBestSatelliteSurfaceAlbedo(Climate& climatologies, Area a, AlbedoType fallback, GroundAlbedo& alb,
         const ModisBrdf::ModisBrdfAlbedo& modis, const InputFields::Inputs& inputs, double wavelength_nm, MAGIC_REAL cos_sza, MAGIC_REAL fallback_correction,
         MAGIC_REAL noon_correction) {
 
-        MAGIC_REAL result = -1;
+        MAGIC_REAL input_albedo = inputs.getSatelliteAlbedo(wavelength_nm, a);
+        MAGIC_REAL modis_albedo = (input_albedo < 0 && fallback == AlbedoType::MODIS)
+            ? modis.getSatelliteAlbedo(wavelength_nm, a, cos_sza) : (MAGIC_REAL)-1;
 
-        if (alb_source == AlbedoType::MODIS) {
-            MAGIC_REAL modis_albedo = modis.getSatelliteAlbedo(wavelength_nm, a, cos_sza);
-
-            if (modis_albedo >= (MAGIC_REAL)0 && modis_albedo <= (MAGIC_REAL)1) {
-                result = modis_albedo;
-            } 
-
-        } else if (alb_source == AlbedoType::INPUT) {
-
-            result = inputs.getSatelliteAlbedo(wavelength_nm, a);
-            if (result >= 0) result = std::min(result * noon_correction, (MAGIC_REAL) 1);
-
-        }
-
-        // See the note in getBestKatoSurfaceAlbedo: the fallback must be reachable
-        // from the MODIS path too. An albedo of -1 here would drive Rmin negative in
-        // effectiveCloudAlbedo and make clear water read as cloudy.
+        // An albedo of -1 here would drive Rmin negative in effectiveCloudAlbedo and make
+        // clear water read as cloudy, so the land-use albedo must always be reachable
+        MAGIC_REAL result = bestAlbedo(input_albedo, noon_correction, fallback, modis_albedo);
         if (result < 0) {
-
             int band = Reflectivity::wavelengthToKatoBand(wavelength_nm);
             band--;
-
             result = getSurfaceAlbedo(climatologies, a, alb, band) * fallback_correction;
-
-        } 
-
+        }
         return result;
-
-
     }
+
 
   
 }

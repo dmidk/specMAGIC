@@ -41,8 +41,12 @@ FILL = -1
 
 
 def start_time(image):
-    """The nominal start of the image's repeat cycle, from satpy's attribute or a time coordinate."""
-    for value in (image.attrs.get("start_time"), image.coords.get("start_time"), image.coords.get("time")):
+    """
+    The nominal start of the image's repeat cycle, from its time coordinate or satpy's
+    attribute. The coordinate comes first: an image picked from a series keeps the
+    attributes of the series, but has its own time.
+    """
+    for value in (image.coords.get("start_time"), image.coords.get("time"), image.attrs.get("start_time")):
         if value is None:
             continue
         if isinstance(value, xr.DataArray):

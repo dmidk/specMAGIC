@@ -2,8 +2,10 @@
 // given from memory, through the same runMagic as the CLI. The Python package (specmagic)
 // prepares the arrays; see python/specmagic/__init__.py.
 
+#include <cstdint>
 #include <cstdio>
 #include <map>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -49,23 +51,36 @@ static py::tuple outputGridAxes(const std::string& home, const std::string& sate
     return py::make_tuple(toNumpy(geo.lat, geo.nlat), toNumpy(geo.lon, geo.nlon));
 }
 
-static py::dict run(const std::string& home, const std::string& channel, const std::string& satellite,
-    Counts counts, int resolution, std::tuple<int, int, int, int, int> start,
+// magic for one image after another, as for a series: the config, and the tables of the month
+// of the last image, read again only when the month changes
+struct Session {
+    std::string home, satellite;
+    AlbedoType albedo_source;      // the albedo where there is no albedo input
+    Config c;
+    std::unique_ptr<MagicTables> tables;
+
+    Session(const std::string& home, const std::string& satellite, const std::string& albedo_fallback,
+        std::optional<Grid> grid)
+        : home(home), satellite(satellite), albedo_source(parseAlbedoFallback(albedo_fallback)),
+          c(config(home, grid)) {}
+
+    py::dict run(const std::string& channel, Counts counts, int resolution, std::tuple<int, int, int, int, int> start,
+        const std::map<std::string, std::pair<Values, std::string>>& fields,
+        const std::map<std::string, std::string>& problems, bool strict);
+};
+
+py::dict Session::run(const std::string& channel, Counts counts, int resolution,
+    std::tuple<int, int, int, int, int> start,
     const std::map<std::string, std::pair<Values, std::string>>& fields,
-    const std::map<std::string, std::string>& problems,
-    const std::string& albedo, bool strict, std::optional<Grid> grid) {
+    const std::map<std::string, std::string>& problems, bool strict) {
 
     if (counts.ndim() != 2) throw std::invalid_argument("the image must be 2-D (y, x)");
-
-    Config c = config(home, grid);
 
     Image img;
     auto [year, month, day, hour, minute] = start;
     img.fromArray(channel, satellite, home, counts.data(), static_cast<int>(counts.shape(0)),
         static_cast<int>(counts.shape(1)), resolution, DateTime(year, month, day, hour, minute));
 
-    if (albedo != "MODIS" && albedo != "LANDMAP") throw std::invalid_argument("unknown albedo " + albedo);
-    AlbedoType albedo_source = albedo == "MODIS" ? AlbedoType::MODIS : AlbedoType::LANDMAP;
 
     Geography geo = outputGrid(c, img.info.subsatellite_longitude_deg);
 
@@ -85,16 +100,15 @@ static py::dict run(const std::string& home, const std::string& channel, const s
     std::fflush(stdout);
     inputs.check();
 
-    if (inputs.request.albedo) {
-        if (albedo_source == AlbedoType::MODIS) {
-            throw std::invalid_argument("albedo MODIS and an albedo input cannot be used together");
-        }
-        albedo_source = AlbedoType::INPUT;
-    }
 
     MagicRun result = [&] {
         py::gil_scoped_release release;
-        return runMagic(c, img, geo, albedo_source, inputs);
+        if (!tables || tables->month != img.timestamp.month) {
+            tables.reset();     // frees the tables of the last month before reading the next
+            tables = std::make_unique<MagicTables>(c, img.info.subsatellite_longitude_deg, img.timestamp.month,
+                albedo_source == AlbedoType::MODIS);
+        }
+        return runMagic(c, img, geo, *tables, albedo_source, inputs);
     }();
 
     // magic reports with printf; flush it now, so that it appears with the run in Python
@@ -104,6 +118,16 @@ static py::dict run(const std::string& home, const std::string& channel, const s
     py::dict attributes;
     for (const auto& [key, value] : result.attributes) attributes[py::str(key)] = value;
 
+    // The day pixel counts behind each usage attribute, so that a series can be summed
+    py::dict usage;
+    auto tally = [](const InputFields::Tally& t) {
+        return py::make_tuple(t.input, t.climatology, t.clipped, t.water);
+    };
+    if (inputs.request.aerosol) usage["aod_usage"] = tally(result.usage.aod);
+    if (inputs.request.ozone) usage["o3_usage"] = tally(result.usage.o3);
+    if (inputs.request.water_vapour) usage["h2o_usage"] = tally(result.usage.h2o);
+    if (inputs.request.albedo) usage["albedo_usage"] = tally(result.usage.albedo);
+
     py::dict out;
     out["GHI"] = toNumpy(result.radiation.GHI);
     out["DNI"] = toNumpy(result.radiation.DNI);
@@ -112,14 +136,26 @@ static py::dict run(const std::string& home, const std::string& channel, const s
     out["lat"] = toNumpy(geo.lat, geo.nlat);
     out["lon"] = toNumpy(geo.lon, geo.nlon);
     out["attributes"] = attributes;
+    out["usage"] = usage;
     out["loop_seconds"] = result.loop_seconds;
     return out;
 }
 
 PYBIND11_MODULE(_magic, m) {
     m.doc() = "specMAGIC's C++ core; use specmagic.run instead of calling this directly";
-    m.def("run", &run, py::arg("home"), py::arg("channel"), py::arg("satellite"), py::arg("counts"),
-        py::arg("resolution"), py::arg("start"), py::arg("fields"), py::arg("problems"), py::arg("albedo"),
-        py::arg("strict"), py::arg("grid"));
+    py::class_<Session>(m, "Session")
+        .def(py::init<const std::string&, const std::string&, const std::string&, std::optional<Grid>>(),
+            py::arg("home"), py::arg("satellite"), py::arg("albedo_fallback"), py::arg("grid"))
+        .def("run", &Session::run, py::arg("channel"), py::arg("counts"), py::arg("resolution"),
+            py::arg("start"), py::arg("fields"), py::arg("problems"), py::arg("strict"));
+    m.def("usage_summary",
+        [](uint64_t input, uint64_t climatology, uint64_t clipped, uint64_t water,
+           std::optional<std::string> albedo_fallback) {
+            // albedo_fallback: that of the run, for the albedo usage; None for the other inputs
+            const char* fallback = nullptr;
+            if (albedo_fallback) fallback = InputFields::Inputs::albedoFallback(parseAlbedoFallback(*albedo_fallback));
+            return InputFields::Inputs::summary(InputFields::Tally{input, climatology, clipped, water}, fallback);
+        },
+        py::arg("input"), py::arg("climatology"), py::arg("clipped"), py::arg("water"), py::arg("albedo_fallback"));
     m.def("output_grid", &outputGridAxes, py::arg("home"), py::arg("satellite"), py::arg("grid"));
 }

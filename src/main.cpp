@@ -47,7 +47,7 @@ int main(int argc, char* argv[]) {
     img.initfromFile(c.path+c.cloud_list);
     img.readImage(channel, satelliteFromEnv(), home);
 
-    AlbedoType albedo_source = parseAlbedoSource();
+    AlbedoType albedo_source = albedoFallbackFromEnv();
 
     // Optional input fields on the output grid, one NetCDF file per table
     InputFields::Paths paths;
@@ -56,13 +56,6 @@ int main(int argc, char* argv[]) {
     paths.water_vapour = envString("WATER_VAPOUR_FILE");
     paths.albedo = envString("ALBEDO_FILE");
 
-    if (!paths.albedo.empty()) {
-        if (albedo_source == AlbedoType::MODIS) {
-            throw std::runtime_error("ALBEDO=MODIS and ALBEDO_FILE cannot be used together");
-        }
-        albedo_source = AlbedoType::INPUT;
-    }
-
     Geography geo = outputGrid(c, img.info.subsatellite_longitude_deg);
 
     InputFields::Inputs inputs;
@@ -70,7 +63,9 @@ int main(int argc, char* argv[]) {
     inputs.load(paths, geo);
     inputs.check();
 
-    MagicRun run = runMagic(c, img, geo, albedo_source, inputs);
+    MagicTables tables(c, img.info.subsatellite_longitude_deg, img.timestamp.month,
+        albedo_source == AlbedoType::MODIS);
+    MagicRun run = runMagic(c, img, geo, tables, albedo_source, inputs);
 
     // Output information to file, recording which input fields were used
     run.radiation.toFile(img.timestamp, geo, c, run.attributes);

@@ -52,9 +52,21 @@ def grid_definition(grid):
 
 def output_grid(home, satellite, grid=None):
     """
-    The lat/lon axes of the output grid, as magic builds them: from magic-config.asc in home,
-    or from grid = (lat_min, lat_max, lon_min, lon_max, resolution), shifted by the satellite's
-    longitude.
+    The latitudes and longitudes of the output grid, exactly as magic builds them.
+
+    Parameters
+    ----------
+    home : str or pathlib.Path
+        The directory with ``magic-config.asc``, whose grid is used if ``grid`` is not given.
+    satellite : str
+        The satellite; the grid is shifted by its longitude.
+    grid : tuple of float, optional
+        ``(lat_min, lat_max, lon_min, lon_max, resolution)`` in degrees.
+
+    Returns
+    -------
+    lat, lon : numpy.ndarray
+        The two 1-D axes, in degrees.
     """
     return _magic.output_grid(f"{home}/", satellite, grid_definition(grid) if grid is not None else None)
 
@@ -89,7 +101,8 @@ def forecast(run, step):
 def candidates(da, target, daily):
     """
     The 2-D slices of da that suit an image at target, best first, each with a description of
-    its time. Without a time dimension, da itself is the only one.
+    its time and the time itself. Without a time dimension, da itself is the only one, with no
+    time (None).
     """
     if daily:
         target = target.astype("datetime64[D]").astype("datetime64[s]")
@@ -110,12 +123,12 @@ def candidates(da, target, daily):
         ok = np.flatnonzero((diff >= -max_before) & (diff <= max_after))
         for k in ok[np.lexsort((-runs[run_idx[ok]].astype(np.int64), valid[ok], np.abs(diff[ok])))]:
             yield (da.isel(forecast_reference_time=run_idx[k], step=step_idx[k]),
-                   f"{forecast(runs[run_idx[k]], steps[step_idx[k]])}, valid {stamp(valid[k])}")
+                   f"{forecast(runs[run_idx[k]], steps[step_idx[k]])}, valid {stamp(valid[k])}", valid[k])
         return
 
     time_dim = next((d for d in da.dims if d in da.coords and np.issubdtype(da[d].dtype, np.datetime64)), None)
     if time_dim is None:
-        yield da, "without time"
+        yield da, "without time", None
         return
 
     # One time axis; the forecast it comes from, if recorded along it (as in CAMS)
@@ -126,8 +139,9 @@ def candidates(da, target, daily):
     for i in preferred_order(times, target, max_before, max_after):
         label = f"valid {stamp(times[i])}" if not daily else f"day {str(times[i])[:10]}"
         if has_forecast:
-            label = f"{forecast(runs.values[i], steps.values[i])}, {label}"
-        yield da.isel({time_dim: i}), label
+            # Only this time's run and step: the whole coordinate may be a lazy array to read
+            label = f"{forecast(runs[i].values, steps[i].values)}, {label}"
+        yield da.isel({time_dim: i}), label, times[i]
 
 
 ## ------ Regridding ------
@@ -184,8 +198,19 @@ def grid_mapping(da):
     return (CRS.from_wkt(attrs["crs_wkt"]) if "crs_wkt" in attrs else CRS.from_cf(attrs)), attrs
 
 
-def regrid(da, lat, lon, method):
-    """A 2-D da on its own grid, as float32 on the output grid (lat, lon); NaN where it has no value."""
+def regrid(da, lat, lon, method, located=None):
+    """
+    A 2-D da on its own grid, as float32 on the output grid (lat, lon); NaN where it has no
+    value. located keeps the positions of the output grid in da's grid, for further slices
+    of the same source (see Regridded).
+    """
+    def locate(find):
+        if located is None:
+            return find()
+        if "positions" not in located:
+            located["positions"] = find()
+        return located["positions"]
+
     if on_grid(da, lat, lon):
         return da.values.astype(np.float32)
 
@@ -204,20 +229,26 @@ def regrid(da, lat, lon, method):
             # Global: repeat the first column after the last, so the seam interpolates
             first = da.isel({lon_name: [0]}).assign_coords({lon_name: [src_lon[0] + 360.0]})
             da = xr.concat([da, first], dim=lon_name)
-        return sample(da, positions(da[lat_name].values, lat2d), positions(da[lon_name].values, lon2d), method)
+        iy, ix = locate(lambda: (positions(da[lat_name].values, lat2d), positions(da[lon_name].values, lon2d)))
+        return sample(da, iy, ix, method)
 
     # A projected grid, such as DINI's Lambert conformal or the geostationary one of LSA SAF
     if "x" in da.dims and "y" in da.dims:
-        crs, attrs = grid_mapping(da)
         da = da.transpose("y", "x")
-        x, y = Transformer.from_crs("EPSG:4326", crs, always_xy=True).transform(lon2d, lat2d)
 
-        # Geostationary coordinates can be scan angles in radians rather than metres
-        if attrs.get("grid_mapping_name") == "geostationary" and str(da.x.attrs.get("units", "")).startswith("rad"):
-            x, y = x / attrs["perspective_point_height"], y / attrs["perspective_point_height"]
-        x = np.where(np.isfinite(x), x, np.nan)
-        y = np.where(np.isfinite(y), y, np.nan)
-        return sample(da, positions(da.y.values, y), positions(da.x.values, x), method)
+        def find():
+            crs, attrs = grid_mapping(da)
+            x, y = Transformer.from_crs("EPSG:4326", crs, always_xy=True).transform(lon2d, lat2d)
+
+            # Geostationary coordinates can be scan angles in radians rather than metres
+            if attrs.get("grid_mapping_name") == "geostationary" and str(da.x.attrs.get("units", "")).startswith("rad"):
+                x, y = x / attrs["perspective_point_height"], y / attrs["perspective_point_height"]
+            x = np.where(np.isfinite(x), x, np.nan)
+            y = np.where(np.isfinite(y), y, np.nan)
+            return positions(da.y.values, y), positions(da.x.values, x)
+
+        iy, ix = locate(find)
+        return sample(da, iy, ix, method)
 
     raise ValueError(f"cannot tell the grid of {da.name} with dims {da.dims}: it needs latitude/longitude "
                      "or x/y dimensions")
@@ -245,10 +276,37 @@ def source_of(da):
     return da.encoding.get("source") or da.attrs.get("source") or "memory"
 
 
-def regrid_input(da, kind, image_time, lat, lon):
+class Regridded:
+    """
+    The input fields of a series of images, kept as they are regridded. The grids are the same
+    for every image, so the positions of the output grid in each source's grid are found once
+    for the series. And images close in time use the same slice of a source (an hour of CAMS,
+    a step of DINI, a day of LSA SAF), so a regridded slice is kept for the next image; only
+    the slices the last image used are kept, as a series moves on in time.
+    """
+    def __init__(self):
+        self.located = {}
+        self.last, self.current = {}, {}
+
+    def next_image(self):
+        self.last, self.current = self.current, {}
+
+    def slice(self, key, make):
+        if key not in self.current:
+            self.current[key] = self.last[key] if key in self.last else make()
+        return self.current[key]
+
+
+def regrid_input(da, kind, image_time, lat, lon, regridded=None):
     """
     One input field for an image at image_time, on the output grid lat/lon, in magic's units,
-    with its provenance. Raises ValueError if da cannot provide it.
+    with its provenance. Raises ValueError if da cannot provide it. regridded keeps the work
+    for the next images of a series (see Regridded).
+
+    A source can carry the age in days of each value as the coordinate age_days, with the
+    limit as the attribute max_age_days, as lsasaf_albedo does: a value is dropped where its
+    age on the image's day, its age in the slice plus the days from the slice to the image,
+    is over the limit, or where its age is negative (no value).
     """
     if kind not in KINDS:
         raise ValueError(f"unknown kind of input {kind}, expected one of {sorted(KINDS)}")
@@ -259,38 +317,82 @@ def regrid_input(da, kind, image_time, lat, lon):
 
     target = np.datetime64(image_time, "s")
     scale = scale_to_magic(kind, da)
-    for candidate, when in candidates(da, target, KINDS[kind]["daily"]):
+    located = None if regridded is None else regridded.located.setdefault(kind, {})
+    for candidate, when, valid in candidates(da, target, KINDS[kind]["daily"]):
         if candidate.ndim != 2:
             raise ValueError(f"{da.name} has dims {candidate.dims} left after picking the time; expected 2")
-        values = regrid(candidate, lat, lon, KINDS[kind]["method"]) * np.float32(scale)
+
+        key = (kind, when)
+        age = candidate.coords.get("age_days")
+        if age is not None:
+            gap = 0 if valid is None else int((target.astype("datetime64[D]") - np.datetime64(valid, "D"))
+                                              / np.timedelta64(1, "D"))
+            # age <= limit - gap rather than age + gap <= limit, which can overflow an int8 age
+            candidate = candidate.where((age >= 0) & (age <= da.attrs["max_age_days"] - gap))
+            key = (kind, when, gap)
+
+        def make():
+            return in_magic_units(kind, regrid(candidate, lat, lon, KINDS[kind]["method"], located) * np.float32(scale))
+
+        values = make() if regridded is None else regridded.slice(key, make)
         if np.isfinite(values).any():
             break
     else:
         raise ValueError(f"{da.name} from {source_of(da)} has no value on the output grid at a time "
                          f"within the window of {stamp(target)}")
 
-    if kind in ("albedo_vis", "albedo_nir"):
-        values[(values < 0) | (values > 1)] = np.nan
-    elif kind == "land":
-        values = np.where(np.isfinite(values) & (values > 0.5), 1, 0).astype(np.float32)
-
     return xr.DataArray(values, dims=("lat", "lon"), coords={"lat": lat, "lon": lon},
                         name=KINDS[kind]["name"],
                         attrs={"provenance": f"{da.name} {when} from {source_of(da)}"})
 
 
+def in_magic_units(kind, values):
+    """Regridded values as magic takes them: albedo outside 0..1 dropped, land as 1 or 0."""
+    if kind in ("albedo_vis", "albedo_nir"):
+        return np.where((values < 0) | (values > 1), np.float32(np.nan), values)
+    if kind == "land":
+        return np.where(np.isfinite(values) & (values > 0.5), 1, 0).astype(np.float32)
+    return values
+
+
 def lsasaf_albedo(ds, max_age_days=10):
     """
-    The albedo inputs from an LSA SAF MTDAL dataset (an archive or the daily files): the
-    visible and near-infrared black-sky albedo, dropped where older than max_age_days, and
-    the land mask from bit 0 of QFLAGS. Pass them on as run(..., **lsasaf_albedo(ds)).
+    The albedo inputs of ``run`` from an LSA SAF MTDAL dataset.
+
+    Parameters
+    ----------
+    ds : xarray.Dataset
+        An LSA SAF MTDAL archive, or one or more of its daily files. It needs ``AL-VI-DH``,
+        ``AL-NI-DH``, ``Z_Age``, ``QFLAGS`` and ``geostationary``, with dims
+        ``(time, y, x)``. The grid mapping ``geostationary`` is attached here, so
+        ``decode_coords="all"`` is not needed.
+    max_age_days : int, default 10
+        The oldest albedo to use, in days on the image's day.
+
+    Returns
+    -------
+    dict of xarray.DataArray
+        ``albedo_vis``, ``albedo_nir`` and ``land``, to pass on as
+        ``run(..., **lsasaf_albedo(ds))``.
+
+    Notes
+    -----
+    The albedos are ``AL-VI-DH`` and ``AL-NI-DH``. Their age ``Z_Age`` becomes the
+    coordinate ``age_days``, and ``max_age_days`` an attribute, so that values that are too
+    old are dropped. When an earlier day is used because the image's own day is missing,
+    the days in between are added to the age.
+
+    The land mask is bit 0 of ``QFLAGS``. The files do not document the flags. In the data,
+    bits 0-1 are 0 on the sea and outside the disc, 1 on land and 3 on inland water, so bit
+    0 is set on both land and inland water: lakes and rivers count as land. The mask only
+    affects how pixels without an albedo are reported (see ``run``). The albedo itself is
+    used wherever it has a value, and LSA SAF gives values on inland water too.
     """
     mapping = ds["geostationary"]
-    fresh = (ds["Z_Age"] >= 0) & (ds["Z_Age"] <= max_age_days)
     out = {}
     for kind, var in (("albedo_vis", "AL-VI-DH"), ("albedo_nir", "AL-NI-DH")):
-        out[kind] = ds[var].where(fresh).assign_coords(geostationary=mapping)
-        out[kind].attrs = {**ds[var].attrs, "grid_mapping": "geostationary"}
+        out[kind] = ds[var].assign_coords(geostationary=mapping, age_days=ds["Z_Age"].variable)
+        out[kind].attrs = {**ds[var].attrs, "grid_mapping": "geostationary", "max_age_days": max_age_days}
         out[kind].encoding = ds[var].encoding
     land = (ds["QFLAGS"].astype("uint8") & 1).assign_coords(geostationary=mapping)
     land.attrs = {"grid_mapping": "geostationary"}
@@ -301,8 +403,22 @@ def lsasaf_albedo(ds, max_age_days=10):
 
 def write_inputs(directory, **fields):
     """
-    Writes on-grid input fields (from regrid_input) as the NetCDF files the CLI reads, one per
-    table: aerosol.nc, ozone.nc, water_vapour.nc and albedo.nc. Returns their paths by table.
+    Write input fields on the output grid as the NetCDF files that the CLI reads.
+
+    Parameters
+    ----------
+    directory : str or pathlib.Path
+        Where to write the files. It is created if needed.
+    **fields : xarray.DataArray
+        Fields on the output grid, as ``regrid_input`` returns them, by kind: ``aerosol``,
+        ``ozone``, ``water_vapour``, ``albedo_vis``, ``albedo_nir`` and ``land``. The albedo
+        without a land mask gets one where every pixel is land.
+
+    Returns
+    -------
+    dict of pathlib.Path
+        The written files by table: ``aerosol.nc``, ``ozone.nc``, ``water_vapour.nc`` and
+        ``albedo.nc`` (with both albedos and the land mask), for the tables given.
     """
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
