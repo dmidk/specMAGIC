@@ -52,9 +52,21 @@ def grid_definition(grid):
 
 def output_grid(home, satellite, grid=None):
     """
-    The lat/lon axes of the output grid, as magic builds them: from magic-config.asc in home,
-    or from grid = (lat_min, lat_max, lon_min, lon_max, resolution), shifted by the satellite's
-    longitude.
+    The latitudes and longitudes of the output grid, exactly as magic builds them.
+
+    Parameters
+    ----------
+    home : str or pathlib.Path
+        The directory with ``magic-config.asc``, whose grid is used if ``grid`` is not given.
+    satellite : str
+        The satellite; the grid is shifted by its longitude.
+    grid : tuple of float, optional
+        ``(lat_min, lat_max, lon_min, lon_max, resolution)`` in degrees.
+
+    Returns
+    -------
+    lat, lon : numpy.ndarray
+        The two 1-D axes, in degrees.
     """
     return _magic.output_grid(f"{home}/", satellite, grid_definition(grid) if grid is not None else None)
 
@@ -345,18 +357,36 @@ def in_magic_units(kind, values):
 
 def lsasaf_albedo(ds, max_age_days=10):
     """
-    The albedo inputs from an LSA SAF MTDAL dataset (an archive or the daily files): the
-    visible and near-infrared black-sky albedo, and the land mask. Pass them on as
-    run(..., **lsasaf_albedo(ds)).
+    The albedo inputs of ``run`` from an LSA SAF MTDAL dataset.
 
-    An albedo value is dropped where it is older than max_age_days on the image's day: its age
-    in its day's product (Z_Age), plus the days from that day to the image's, when an earlier
-    day is used because the image's own is missing.
+    Parameters
+    ----------
+    ds : xarray.Dataset
+        An LSA SAF MTDAL archive, or one or more of its daily files. It needs ``AL-VI-DH``,
+        ``AL-NI-DH``, ``Z_Age``, ``QFLAGS`` and ``geostationary``, with dims
+        ``(time, y, x)``. The grid mapping ``geostationary`` is attached here, so
+        ``decode_coords="all"`` is not needed.
+    max_age_days : int, default 10
+        The oldest albedo to use, in days on the image's day.
 
-    The land mask is bit 0 of QFLAGS. The files do not document the flags, but in the data
-    bits 0-1 are 0 on sea and outside the disc, 1 on land and 3 on inland water, so bit 0 is
-    set on land and on inland water alike: lakes and rivers count as land and use the LSA SAF
-    albedo, which it gives there too.
+    Returns
+    -------
+    dict of xarray.DataArray
+        ``albedo_vis``, ``albedo_nir`` and ``land``, to pass on as
+        ``run(..., **lsasaf_albedo(ds))``.
+
+    Notes
+    -----
+    The albedos are ``AL-VI-DH`` and ``AL-NI-DH``. Their age ``Z_Age`` becomes the
+    coordinate ``age_days``, and ``max_age_days`` an attribute, so that values that are too
+    old are dropped. When an earlier day is used because the image's own day is missing,
+    the days in between are added to the age.
+
+    The land mask is bit 0 of ``QFLAGS``. The files do not document the flags. In the data,
+    bits 0-1 are 0 on the sea and outside the disc, 1 on land and 3 on inland water, so bit
+    0 is set on both land and inland water: lakes and rivers count as land. The mask only
+    affects how pixels without an albedo are reported (see ``run``). The albedo itself is
+    used wherever it has a value, and LSA SAF gives values on inland water too.
     """
     mapping = ds["geostationary"]
     out = {}
@@ -373,8 +403,22 @@ def lsasaf_albedo(ds, max_age_days=10):
 
 def write_inputs(directory, **fields):
     """
-    Writes on-grid input fields (from regrid_input) as the NetCDF files the CLI reads, one per
-    table: aerosol.nc, ozone.nc, water_vapour.nc and albedo.nc. Returns their paths by table.
+    Write input fields on the output grid as the NetCDF files that the CLI reads.
+
+    Parameters
+    ----------
+    directory : str or pathlib.Path
+        Where to write the files. It is created if needed.
+    **fields : xarray.DataArray
+        Fields on the output grid, as ``regrid_input`` returns them, by kind: ``aerosol``,
+        ``ozone``, ``water_vapour``, ``albedo_vis``, ``albedo_nir`` and ``land``. The albedo
+        without a land mask gets one where every pixel is land.
+
+    Returns
+    -------
+    dict of pathlib.Path
+        The written files by table: ``aerosol.nc``, ``ozone.nc``, ``water_vapour.nc`` and
+        ``albedo.nc`` (with both albedos and the land mask), for the tables given.
     """
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)

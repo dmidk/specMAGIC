@@ -211,24 +211,33 @@ image, for example from CAMS, DINI and LSA SAF:
 | Aerosol | `aod` | dimensionless, at 550 nm | `macc-ecwmf-clim03-06rich.dat` |
 | Ozone | `o3` | DU | `ERAint-o3-clim.asc` |
 | Water vapour | `h2o` | kg m^-2 | `h2o_ecmwf.dat` |
-| Albedo | `albedo_vis`, `albedo_nir`, `albedo_land` | 0-1, and 1 on land | land use and `reflec.lut` |
+| Albedo | `albedo_vis`, `albedo_nir`, `albedo_land` | 0-1; `albedo_land` 1 on land, for the report only | land use and `reflec.lut` |
 
-They are independent, so any combination can be given, from any source, and each pixel
-without a value in a field uses the climatology (or the land-use albedo). The easiest way to
-use them is the Python package `specmagic`, which takes the image and the inputs as xarray
-DataArrays on their own grids, picks the time slices and regrids them. The CLI takes them as
-NetCDF files already on its output grid. Both run the same C++ (`runMagic` in `src/run.cpp`,
-the fields in `headers/input_fields.hpp`), and `tests/test_cli_python.py` checks that they
-give the same results.
+The inputs are independent: give any combination, from any source. A pixel without a value
+in a field uses the climatology (or the land-use albedo) instead.
+
+There are two ways to give them:
+
+- **From Python** (recommended): the `specmagic` package takes the image and the inputs as
+  xarray DataArrays on their own grids. It picks the right time and regrids them for you.
+- **From the CLI**: one NetCDF file per input, already on the output grid.
+
+Both run the same C++ code (`runMagic` in `src/run.cpp`, with the fields in
+`headers/input_fields.hpp`), and `tests/test_cli_python.py` checks that they give the same
+results.
 
 The data are not supplied with specMAGIC; you must provide them yourself.
 
 ### From Python
 
-`uv sync` builds the package, including the C++ (`python/bindings.cpp`, with pybind11), and
-builds it again when the C++ sources change (`[tool.uv] cache-keys` in `pyproject.toml`).
-`specmagic.run` takes the image and the inputs, and returns GHI, DNI, CAL and CSR as a
-Dataset. Nothing is written to disk; save the result with `out.to_netcdf(...)` if you need it.
+`uv sync` builds the package, including its C++ part (`python/bindings.cpp`, with pybind11).
+It builds it again whenever the C++ sources change (`[tool.uv] cache-keys` in
+`pyproject.toml`).
+
+`specmagic.run` takes the image and the inputs, and returns GHI, DNI, CAL and CSR as an
+xarray Dataset. Nothing is written to disk; use `out.to_netcdf(...)` to save the result.
+`help(specmagic.run)` describes every argument, with the dimensions, coordinates and
+attributes it expects.
 
     import xarray as xr
     import specmagic
@@ -236,25 +245,31 @@ Dataset. Nothing is written to disk; save the result with `out.to_netcdf(...)` i
     mtg = xr.open_zarr("vis.zarr")
     image = mtg.vis_06.sel(start_time="2025-01-01T12:00")
     cams = xr.open_zarr("cams.zarr")
-    dini = xr.open_zarr("dini.zarr", decode_coords="all")     # keeps dini_projection with wvint
+    dini = xr.open_zarr("dini.zarr", decode_coords="all")      # keeps dini_projection with wvint
     lsasaf = xr.open_zarr("lsasaf.zarr", decode_coords="all")  # or a daily file, LSA-105_MTG_MTDAL_*.nc
 
     out = specmagic.run(image, aerosol=cams.aod550, ozone=cams.gtco3, water_vapour=dini.wvint,
                         **specmagic.lsasaf_albedo(lsasaf), grid=(31, 72, -19, 34, 0.025))
 
-The sources are opened lazily, so a large archive is fine: only the slices and the windows
-that the images need are read. To fill the DINI domain's surroundings with CAMS, regrid both
-and combine them before the run:
+The sources are opened lazily, so large archives are fine: only the time slices and the
+part of each grid that the images need are read.
+
+To fill the area around the DINI domain with CAMS, regrid both and combine them before the
+run:
 
     when = image.start_time.values
     h2o = specmagic.regrid_input(dini.wvint, "water_vapour", when).fillna(
         specmagic.regrid_input(cams.tcwv, "water_vapour", when))
     out = specmagic.run(image, water_vapour=h2o.assign_attrs(provenance="DINI wvint, then CAMS tcwv"))
 
-**The image** is the channel as satpy gives it: named after the channel (in the attribute
-`name`, as satpy does, or as the DataArray's name), with the attributes `resolution` and
-`calibration`, and a start time (a coordinate `start_time` or `time`, or else the attribute
-`start_time`). It can come straight from the L1c files, with no file written in between:
+**The image** is one channel, as satpy gives it. It needs:
+
+- the channel name, in the attribute `name` (as satpy sets it) or as the DataArray's name;
+- the attributes `resolution` (in metres) and `calibration`;
+- its start time, as a coordinate `start_time` or `time`, or else as an attribute
+  `start_time`.
+
+It can come straight from the L1c files, without writing a file in between:
 
     import glob, hdf5plugin
     from satpy import Scene
@@ -263,78 +278,98 @@ and combine them before the run:
     scene.load(["vis_06"], calibration="counts")
     out = specmagic.run(scene["vis_06"])
 
-The image may be counts, or for MTG reflectance, which is turned back into counts with the FCI
-calibration in `python/specmagic/_mtg.py` (taken from the L1c files; satpy's
-`radiance_unit_conversion_coefficient` attribute is checked against it). It may be the full
-disc or a crop of it with its `x`/`y` coordinates in metres; a crop is put in its place on an
-otherwise empty full disc. The output grid must then lie inside the crop. Counts packed with
-the radiance calibration, as in the files `preprocessMTG.py` writes, must be opened with
-`xr.open_dataset(path, mask_and_scale=False)`; otherwise xarray unpacks them to radiance, and
-`specmagic.run` refuses the image.
+magic computes the cloud index from the raw FCI counts. Counts are therefore best, and are
+used exactly. For MTG, reflectance also works: it is turned back into counts with the FCI
+calibration in `python/specmagic/_mtg.py`, which was taken from the L1c files. satpy's
+`radiance_unit_conversion_coefficient` attribute is checked against it.
 
-**A series of images** is an image with one more dimension, such as all images of a day, or
+Counts packed with the radiance calibration, as in the files `preprocessMTG.py` writes, must
+be opened with `xr.open_dataset(path, mask_and_scale=False)`. Otherwise xarray unpacks them
+to radiance, and `specmagic.run` refuses the image.
+
+The image can be the full disc, or a crop of it with its `x`/`y` coordinates in metres. A
+crop is put in its place on an otherwise empty disc, so the output grid must lie inside it.
+
+**A series of images** is an image with one more dimension, such as all images of a day or
 of a month:
 
     out = specmagic.run(mtg.vis_06.sel(start_time="2025-03-13"), aerosol=cams.aod550,
                         **specmagic.lsasaf_albedo(lsasaf))
 
-Each image is run in turn, with the input slices for its own time, exactly as if it were run
-alone, and the output has a `time` dimension. Each image needs its own time, as a coordinate
-`start_time` or `time` along that dimension (a zarr archive has it; images joined with
-`xr.concat` need it assigned). An error in one image, or an unusable input with
-`strict=True`, stops the whole series. Work that is the same for several images is done once
-for the series: the output grid and each source's grid do not change, so the positions of
-the output grid in each source are found once; the lookup tables and climatologies are read
-once per month; and a slice of a source is regridded once and kept while the next images use
-it too, as six images in an hour use the same hour of CAMS, or all images of a day the same
-day of LSA SAF. The attributes are joined as described under
-[provenance](#provenance-in-the-output-files).
+- Each image is run in turn, with the inputs for its own time, exactly as if it were run
+  alone. The output has a `time` dimension.
+- Each image needs its own time, as a coordinate `start_time` or `time` along the series
+  dimension. A zarr archive has one; images joined with `xr.concat` need it assigned.
+- An error in one image, or an unusable input with `strict=True`, stops the whole series.
+- The output attributes are joined as described under
+  [provenance](#provenance-in-the-output-files).
+
+Work that the images share is done only once, which makes a series much faster than
+running its images one by one:
+
+- each source's grid is matched to the output grid once;
+- the lookup tables and climatologies are read once per month;
+- a regridded time slice is kept for as long as the next images use it. Six images in an
+  hour share an hour of CAMS, and all images of a day share a day of LSA SAF.
 
 **The output grid** is that of `magic-config.asc`, or `grid=(lat_min, lat_max, lon_min,
-lon_max, resolution)`. Python gets its coordinates from the C++ code
-(`specmagic.output_grid`), so both always agree.
+lon_max, resolution)` in degrees. Python gets its coordinates from the C++ code
+(`specmagic.output_grid`), so the two always agree.
 
-**The grid of an input** is recognised from its dimensions: `latitude`/`longitude` (or
-`lat`/`lon`) for a regular grid, possibly global and in 0..360 like CAMS; or `x`/`y` for a
-projected grid, whose grid mapping variable must be one of its coordinates (open the data
-with `decode_coords="all"`, or assign it), like DINI's Lambert conformal grid or LSA SAF's
-geostationary one, with `x`/`y` in metres or, for the geostationary grid, in radians. A field
-already on the output grid, with dimensions `(lat, lon)`, is used as it is.
+**The grid of an input** is recognised from its dimensions:
 
-**Units** are checked: ozone in kg m^-2 is converted to DU (dividing by 2.1415e-5), and
-anything else than the units in the table above is refused.
+- `latitude` and `longitude` (or `lat` and `lon`): a regular grid in degrees. It may be
+  global and use longitudes from 0 to 360, like CAMS.
+- `y` and `x`: a projected grid, like DINI's Lambert conformal grid or LSA SAF's
+  geostationary one. `x` and `y` are in metres, or in radians for the geostationary grid.
+  The grid mapping variable must be one of the coordinates: open the data with
+  `decode_coords="all"`, or assign it.
+- exactly `(lat, lon)`, on the output grid: the field is used as it is.
 
-**Time.** An input with a time dimension (any `datetime64` dimension) gives the slice nearest
-to the image start. A later time is only used if it is already there, otherwise the latest
-earlier one is, so 00:50 uses 01:00 if it exists and 00:00 if not. Up to 3 h before and
-30 min after the image are accepted. Forecasts with the dimensions `forecast_reference_time`
-and `step`, like DINI, give the most recent run for that valid time. The albedo and land
-mask are daily: the image's own day, else the most recent day up to 10 days before it. If a
-slice has no value on the output grid, the next one is tried. An input without a time
-dimension is used as it is.
+**Units** are checked. Ozone in kg m^-2 is converted to DU (by dividing by 2.1415e-5).
+Other units than those in the table above are refused.
 
-**Age.** A source can give the age in days of each value, as the coordinate `age_days` with
-the limit as the attribute `max_age_days` (`lsasaf_albedo` sets both). A value is then dropped
-where its age on the image's day is over the limit: its age in its slice, plus the days from
-that slice to the image when an earlier day is used.
+**Time.** For an input with a time dimension (any `datetime64` dimension), the slice
+nearest to the image's start is used:
 
-**Regridding.** The aerosol, ozone and water vapour are interpolated bilinearly, so a regional
-field such as DINI's only covers its domain. The albedo and land mask are taken from the
-nearest pixel. Only the window of the source that the output grid needs is read.
+- Up to 3 hours before and 30 minutes after the image are accepted.
+- A later time is only used if it is already in the data. Otherwise the latest earlier one
+  is: 00:50 uses 01:00 if it exists, and 00:00 if not.
+- Forecasts with the dimensions `forecast_reference_time` and `step`, like DINI, give the
+  most recent run for that time.
+- The albedo and land mask are daily: the image's own day, or else the most recent day up
+  to 10 days before it.
+- If a slice has no value on the output grid, the next best one is tried.
+- An input without a time dimension is used for every image.
 
-**LSA SAF.** `specmagic.lsasaf_albedo(ds)` turns an LSA SAF MTDAL dataset (an archive or the
-daily files, e.g. `LSA-105_MTG_MTDAL_MTG-FD_202501010000.nc`) into the three albedo inputs:
-`AL-VI-DH` and `AL-NI-DH`, with their age `Z_Age` limited to 10 days on the image's day
-(`max_age_days`), and the land mask from bit 0 of `QFLAGS`. The files do not document the
-flags, but in the data bits 0-1 are 0 on sea and outside the disc, 1 on land and 3 on inland
-water. Bit 0 is therefore set on land and inland water alike: lakes and rivers count as land
-and use the LSA SAF albedo, which LSA SAF gives there too.
+**Age.** A source can give the age of each value in days, as the coordinate `age_days`, with
+the limit as the attribute `max_age_days`. `lsasaf_albedo` sets both. A value older than the
+limit on the image's day is dropped. When an earlier day is used because the image's own
+day is missing, the days in between are added to its age.
+
+**Regridding.** Aerosol, ozone and water vapour are interpolated bilinearly, so a regional
+field such as DINI's only covers its own domain. The albedo and land mask take the nearest
+pixel. Only the part of the source that the output grid needs is read.
+
+**LSA SAF.** `specmagic.lsasaf_albedo(ds)` turns an LSA SAF MTDAL dataset (an archive, or
+the daily files such as `LSA-105_MTG_MTDAL_MTG-FD_202501010000.nc`) into the three albedo
+inputs:
+
+- `albedo_vis` and `albedo_nir` from `AL-VI-DH` and `AL-NI-DH`, with their age `Z_Age`
+  limited to 10 days on the image's day (`max_age_days`);
+- `land` from bit 0 of `QFLAGS`.
+
+The files do not document the flags. In the data, bits 0-1 are 0 on the sea and outside the
+disc, 1 on land and 3 on inland water. Bit 0 is therefore set on both land and inland
+water, so lakes and rivers count as land in the report (see
+[the land mask](#what-magic-does-with-them)). Their albedo is used either way, since LSA SAF
+gives one there too.
 
 ### From the CLI
 
-`scripts/mtg.sh` takes one NetCDF file per input, already on the output grid of
-`magic-config.asc`, and passes them to `magic` as environment variables. The CLI does not
-regrid, pick a time or convert units:
+`scripts/mtg.sh` takes one NetCDF file per input and passes them to `magic` as environment
+variables. Unlike Python, the CLI does not regrid, pick a time or convert units, so each
+file must already be on the output grid of `magic-config.asc`, for the time of the image:
 
 | Option | Environment variable | Variables in the file |
 |---|---|---|
@@ -343,16 +378,20 @@ regrid, pick a time or convert units:
 | `--water-vapour-file FILE` | `WATER_VAPOUR_FILE` | `h2o` |
 | `--albedo-file FILE` | `ALBEDO_FILE` | `albedo_vis`, `albedo_nir`, `albedo_land` |
 
-Each variable has exactly the dimensions `(lat, lon)`, in that order (no time dimension),
-with the `lat` and `lon` coordinates of the output grid (as `Geography::makeCoordinates`
-makes them, to within 1e-3 degrees), and the units in the table above. It must be stored
-unpacked: a variable with `scale_factor` or `add_offset` is refused. NaN, or the variable's
-`_FillValue` or `missing_value`, marks pixels without a value. A text attribute `provenance` on
-the variable, if there is one, is copied into the output files; otherwise the file's path is.
-`--albedo-file` cannot be combined with `--albedo MODIS`.
+Each variable must:
 
-Such files can be made with any tool, or with the `specmagic` package from sources on other
-grids:
+- have exactly the dimensions `(lat, lon)`, in that order, and no time dimension;
+- have the `lat` and `lon` coordinates of the output grid, as `Geography::makeCoordinates`
+  makes them, to within 1e-3 degrees;
+- be in the units of the table above;
+- be stored unpacked: a variable with `scale_factor` or `add_offset` is refused.
+
+NaN, or the variable's `_FillValue` or `missing_value`, marks pixels without a value. If the
+variable has a text attribute `provenance`, it is copied into the output files; otherwise
+the file's path is. `--albedo-file` cannot be combined with `--albedo MODIS`.
+
+Such files can be made with any tool, or with the `specmagic` package from sources on
+other grids:
 
     import specmagic, xarray as xr
     cams = xr.open_zarr("cams.zarr")
@@ -361,44 +400,65 @@ grids:
 
 ### What magic does with them
 
-**Albedo.** The black-sky (directional-hemispherical) albedos are used with no BRDF model:
-visible (0.4-0.7 um) for the Kato bands up to band 16 and for satellite channels below 700 nm,
-near-infrared (0.7-4.0 um) otherwise. A pixel uses the albedo input only where both are
-available, so that it never mixes it with the land-use albedo across bands. Over water
-(`albedo_land` 0) a missing albedo is expected and not reported; LSA SAF has none there.
+**Albedo.** The black-sky (directional-hemispherical) albedos are used without a BRDF
+model. The visible one (0.4-0.7 um) is used for the Kato bands up to band 16 and for
+satellite channels below 700 nm, and the near-infrared one (0.7-4.0 um) otherwise. A pixel
+uses the albedo input only where both albedos have a value, so that it never mixes input and
+land-use albedo across bands. Every other pixel uses the land-use albedo.
 
-The albedo is taken to be for the sun at local noon, as LSA SAF gives it. According to the
-LSA SAF albedo ATBD (SAF/LAND/MF/ATBD_MTDAL 1.1, section 4.3.5), the directional-hemispherical
-albedo is given for the solar zenith angle at local noon of each pixel and day, capped at 85
-degrees, not for the time of the image. specMAGIC moves it to the current sun with the ratio
-of `zenithCorrection` at the current and at the noon zenith angle, for the pixel's land-use
-class, and caps the result at 1. The noon angle is |latitude - declination| for the image's
-day. The ATBD also suggests blending with the bi-hemispherical albedo by the diffuse
-fraction; that is not done, since LSA SAF provides the bi-hemispherical albedo only as
-broadband.
+**The land mask** (`albedo_land`) changes no output value: the albedo input is used
+wherever it has a value, and the land-use albedo elsewhere, on land or not. The mask only
+decides how pixels without an albedo input are reported:
 
-**Range.** These fields do leave the LUT axes: CAMS ozone over Europe spans about 197-549 DU
-against the 210-525 DU of `o3corr-l.lut`, and AOD reaches about 4.6 in dust events against the
-2.0 of `magic-clear_spectral.lut`. Input values are therefore clipped to the axes. Climatology
-values are not clipped. If a climatology gives water vapour or ozone outside its axis, the run
-stops with an error; AOD beyond 2.0 is extrapolated linearly.
+- over water (`albedo_land` 0) this is expected, since LSA SAF has no albedo there. They are
+  counted as water.
+- over land it is a fallback to the land-use albedo. It is counted in `albedo_usage`, with a
+  warning when it exceeds 1% of the land day pixels.
 
-**Unusable inputs.** A given input that cannot be used at all (a file that cannot be read, a
-missing variable, a field not on the output grid, or in Python a source without a usable time
-or units) is reported, and the climatology (or land-use albedo) is used for it. The report is
-repeated at the end of the run. With `--strict-inputs` (or `strict=True` in Python, which
-then raises `RuntimeError`) the run stops instead. The CLI and Python record such an input
-in the same way: its `*_source` attribute names the climatology, and `input_problems` says
-why. Pixels without a value always fall back without stopping the run; magic warns
-when more than 1% of the day pixels (of the land pixels, for albedo) do so.
+Without a land mask every pixel counts as land, so the sea counts as fallback.
+
+**Noon albedo.** The albedo input is taken to be for the sun at local noon, as LSA SAF gives
+it. According to the LSA SAF albedo ATBD (SAF/LAND/MF/ATBD_MTDAL 1.1, section 4.3.5), the
+directional-hemispherical albedo is for the solar zenith angle at local noon of each pixel
+and day, capped at 85 degrees, not for the time of the image. specMAGIC therefore moves it
+to the current sun:
+
+- it multiplies it by the ratio of `zenithCorrection` at the current and at the noon zenith
+  angle, for the pixel's land-use class, and caps the result at 1;
+- the noon zenith angle is |latitude - declination| for the image's day.
+
+The ATBD also suggests blending with the bi-hemispherical albedo by the diffuse fraction.
+That is not done, since LSA SAF gives the bi-hemispherical albedo only as broadband.
+
+**Range.** Input values can lie outside the axes of the lookup tables. CAMS ozone over
+Europe spans about 197-549 DU, against 210-525 DU in `o3corr-l.lut`, and AOD reaches about
+4.6 in dust events, against 2.0 in `magic-clear_spectral.lut`. Input values are therefore
+clipped to the axes. Climatology values are not: if a climatology gives water vapour or
+ozone outside its axis, the run stops with an error, and AOD beyond 2.0 is extrapolated
+linearly.
+
+**Unusable inputs.** Sometimes a given input cannot be used at all: a file that cannot be
+read, a missing variable, a field not on the output grid, or in Python a source without a
+usable time or units. Then:
+
+- by default, the problem is reported, and the climatology (or land-use albedo) is used for
+  that input. The report is repeated at the end of the run.
+- with `--strict-inputs` (or `strict=True` in Python, which raises `RuntimeError`), the run
+  stops instead.
+
+The CLI and Python record such an input in the same way: its `*_source` attribute names the
+climatology, and `input_problems` says why.
+
+Single pixels without a value always fall back, without stopping the run. magic warns when
+more than 1% of the day pixels (of the land pixels, for albedo) do so.
 
 ### Provenance in the output files
 
-When input fields are given, magic writes as global attributes of every output file (GHI,
-DNI, CAL and CSR, all with the same attributes), and of the Dataset that `specmagic.run`
-returns, where each input came from. They are metadata only: specMAGIC never reads them back.
-They let you tell from the output alone, without the run log, which data it was made from,
-and whether part of it fell back to the climatologies. Without inputs, there are none.
+When input fields are given, the output records where each input came from, as global
+attributes of every output file (GHI, DNI, CAL and CSR all have the same ones) and of the
+Dataset that `specmagic.run` returns. They let you tell from the output alone which data it
+was made from, and whether part of it fell back to the climatologies. They are metadata
+only: specMAGIC never reads them back. Without inputs, there are none.
 
 | Attribute | Written with | Content |
 |---|---|---|
@@ -408,16 +468,22 @@ and whether part of it fell back to the climatologies. Without inputs, there are
 | `albedo_vis_source`, `albedo_nir_source`, `albedo_usage` | albedo | the same for the albedo |
 | `input_problems` | any, only if there were problems | every problem reported during the run, separated by `; ` |
 
-A source attribute is the field's provenance. From `specmagic`, it names the variable, its
-time and the source, e.g. `wvint run 2026-08-23T13:00 +0 h, valid 2026-08-23T13:00 from
-/path/to/dini.zarr`, the 13:00 run at step 0; CAMS gives its run and step too if it has the
-`forecast_reference_time` and `forecast_period` coordinates along `valid_time`. The source is
-the file a DataArray was opened from, which xarray records for NetCDF files but not for zarr
-stores; otherwise it is the DataArray's `source` attribute if set (e.g.
-`cams.aod550.assign_attrs(source="cams.zarr")`), else `memory`. A field passed already on the
-output grid keeps its own `provenance` attribute. If the input
-was given but not usable, the attribute names what was used instead, ending in
-`(input missing)`, such as `aerosol climatology (input missing)`.
+A source attribute is the field's provenance. From `specmagic`, it names the variable, the
+time used and the source, e.g. `wvint run 2026-08-23T13:00 +0 h, valid 2026-08-23T13:00
+from /path/to/dini.zarr` for the 13:00 run at step 0. CAMS also gives its run and step if
+it has `forecast_reference_time` and `forecast_period` coordinates along `valid_time`.
+
+The source is, in order of preference:
+
+1. the file the DataArray was opened from, which xarray records for NetCDF files but not
+   for zarr stores;
+2. the DataArray's `source` attribute, if set, e.g.
+   `cams.aod550.assign_attrs(source="cams.zarr")`;
+3. `memory`.
+
+A field passed already on the output grid keeps its own `provenance` attribute. If an input
+was given but could not be used, the attribute names what was used instead, ending in
+`(input missing)`, e.g. `aerosol climatology (input missing)`.
 
 The usage attributes count the day pixels, since night and invalid pixels use no inputs.
 
@@ -432,10 +498,13 @@ The usage attributes count the day pixels, since night and invalid pixels use no
 The same lines are printed at the end of the run, prefixed with `[WARNING]:` when the
 climatology or land-use share exceeds 1%.
 
-For a series of images from `specmagic.run`, the usage attributes count the day pixels of all
-the images together, so an image with more day pixels weighs more. The source attributes and
-`input_problems`, which differ from image to image, are coordinates along `time` instead of
-global attributes (`""` for an image without problems).
+For a series of images from `specmagic.run`:
+
+- the usage attributes count the day pixels of all the images together, so an image with
+  more day pixels weighs more;
+- the source attributes and `input_problems` differ from image to image, so they become
+  coordinates along `time` instead of global attributes, with `""` for an image without
+  problems.
 
 To read the attributes, use `ncdump -h`:
 
