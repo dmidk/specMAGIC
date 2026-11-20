@@ -39,8 +39,7 @@ struct Matrix {
         }
 
         // --------------------------------------------
-        // All of the operators in this block are probably totally overkill to define
-        // But doing so avoids weird errors later on
+        // Keep moves, disallow copies
 
         Matrix(const Matrix&) = delete;
         Matrix& operator=(const Matrix&) = delete;  

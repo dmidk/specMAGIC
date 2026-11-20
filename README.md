@@ -9,6 +9,10 @@ Annette Hammer and Axel Kemper contributed during their time at the University o
 The 2012 version of SPECMAGIC is described in
 Mueller, R.; Behrendt, T.; Hammer, A.; Kemper, A. [A New Algorithm for the Satellite-Based Retrieval of Solar Surface Irradiance in Spectral Bands](https://doi.org/10.3390/rs4030622).
 
+## Contributing 
+
+Contributions are very welcome. [Please see the coding standard.](https://github.com/dmidk/specMAGIC/blob/main/docs/coding_standard.md)
+
 ## Requirements
 
 - A Linux installation 
