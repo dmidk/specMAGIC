@@ -14,7 +14,7 @@ The basic C-style array functionality is not particularly convenient or flexible
 
 For this reason, **do not** use the `<vector>` class in any performance-intensive part of the program. No `vector` object should appear inside any `OpenMP` parallel region. It is perfectly fine to use it in e.g. read-in or write-out routines, where the `vector` objects are temporary and will not be carried into any parallel loop. 
 
-There are many instances where `vector` works well with OpenMP; this rule is overcautious. For anything performance-critical, prefer the method used for the `Matrix` struct, which contains a flat C-style array with accessor functions built on top for convenience. This is fast, cheap access which throws an immediate error if the program attempts to access illegal memory. 
+There are many instances where `vector` works well with OpenMP; this rule is overcautious. For anything performance-critical, prefer the method used for the `Matrix` struct (`include/matrix.hpp`), which contains a flat C-style array with accessor functions built on top for convenience. This is fast, cheap access which throws an immediate error if the program attempts to access illegal memory. 
 
 ## Variable typing 
 
