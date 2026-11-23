@@ -152,7 +152,7 @@ MagicRun runMagic(Config& c, Image& img, Geography& geo, AlbedoType albedo_sourc
                         // Expected behaviour ~5% of pixels are invalid
 
                         #pragma omp simd
-                        for (int band = KATO_MIN; band < KATO_MAX; band++) {
+                        for (int band = KATO_MIN - 1; band < KATO_MAX; band++) {
                             sc.GHI_spectral[band] = -1;
                             sc.DNI_spectral[band] = -1;
                         }
@@ -168,7 +168,7 @@ MagicRun runMagic(Config& c, Image& img, Geography& geo, AlbedoType albedo_sourc
 
 
                         #pragma omp simd
-                        for (int band = KATO_MIN; band < KATO_MAX; band++) {
+                        for (int band = KATO_MIN - 1; band < KATO_MAX; band++) {
                             sc.GHI_spectral[band] = 0;
                             sc.DNI_spectral[band] = 0;
                         }
@@ -204,7 +204,7 @@ MagicRun runMagic(Config& c, Image& img, Geography& geo, AlbedoType albedo_sourc
                         MAGIC_REAL k = Reflectivity::clearSkyIndex(cal);
 
                         MAGIC_REAL CSR = 0;
-                        for (int band = KATO_MIN; band < KATO_MAX; band++) {
+                        for (int band = KATO_MIN - 1; band < KATO_MAX; band++) {
 
                             // Calculate surface albedo at this point
                             // Prefer MODIS BRDF albedo if available, otherwise use old land-use albedo.
@@ -243,14 +243,10 @@ MagicRun runMagic(Config& c, Image& img, Geography& geo, AlbedoType albedo_sourc
 
                         // Sum up the band contributions
                         // Gets the total GHI/DNI for this pixel
-                        for (int band = KATO_MIN; band < KATO_MAX; band++) {
-
-                            // To avoid indexing errors
-                            int idx = band - 1;
-
-                            GHI += sc.GHI_spectral[idx];
-                            DNI += sc.DNI_spectral[idx];
-
+                        // Same bands as the fill loop above, so GHI, DNI and CSR agree
+                        for (int band = KATO_MIN - 1; band < KATO_MAX; band++) {
+                            GHI += sc.GHI_spectral[band];
+                            DNI += sc.DNI_spectral[band];
                         }
 
                         // Put these values in the matrices

@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added the option to download and run with MODIS high-resolution land albedo maps, instead of the coarse landmaps available by default. [!1](https://github.com/dmidk/specMAGIC/pull/1) @irenelivia [!12](https://github.com/dmidk/specMAGIC/pull/12) @SimonKamuk
 - Added the satellite `.toml` file to avoid hardcoded satellite-specific values. [!18](https://github.com/dmidk/specMAGIC/pull/18) @ElloiseFangelLloyd @KristianHMoller
 - Added optional input fields for the time of the satellite image (aerosol, ozone, water vapour and a noon black-sky albedo such as LSA SAF's), replacing the climatologies and the land-use albedo where they have values: as on-grid NetCDF files from the CLI (`--aerosol-file`, `--ozone-file`, `--water-vapour-file`, `--albedo-file`, and `--strict-inputs`), or as xarray DataArrays on any grid from the new Python package `specmagic` (`specmagic.run`), which runs the same C++ through pybind11. [!34](https://github.com/dmidk/specMAGIC/pull/34) @SimonKamuk
+- Include the coding standard. [!35](https://github.com/dmidk/specMAGIC/pull/35) @ElloiseFangelLloyd
 
 ### Changed
 - Throw error message rather than silent failure in absorber interpolation. [!9](https://github.com/dmidk/specMAGIC/pull/9) @SimonKamuk
@@ -18,7 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reworked `geo2MTGImage` function to work for other satellites as well as MTG. [!18](https://github.com/dmidk/specMAGIC/pull/18) @ElloiseFangelLloyd. 
 - Use longitude of the subsatellite point in the `geo2Image` function to correctly calculate for satellites located at nonzero longitudes. [!20](https://github.com/dmidk/specMAGIC/pull/20) @KristianHMoller
 - Removed the automatic vertical flipping applied to image, as was necessary for MTG. Instead, whether or not each image should be flipped can now be specified in the `satellite.toml` file, and the flipping will be applied conditionally. [!22](https://github.com/dmidk/specMAGIC/pull/22) @ElloiseFangelLloyd @KristianHMoller
-- Include the coding standard. [!35](https://github.com/dmidk/specMAGIC/pull/35) @ElloiseFangelLloyd
+
+### Fixed
+- Fixed the Kato band indexing in the pixel loop: all 32 bands are now computed, and GHI and DNI are summed over the same bands as CSR. Kato band 32 was previously left out of GHI and DNI, which made them slightly too low (about 0.1 %). @SimonKamuk @ElloiseFangelLloyd
 
 
 ## [v1.0.0]
