@@ -48,6 +48,7 @@ usage() {
     echo "  --noclean             Keep existing outputs"
     echo "  --no-rebuild          Skip magic rebuild"
     echo "  --whole-domain        Plot the whole domain, rather than the DK cutout"
+    echo "  --small-domain        Plot a tiny region over Denmark"
     echo "  --timer               Enable timing output"
     echo "  --verbose             Enable verbose output"
     echo "  -h, --help            Show this help"
@@ -144,6 +145,11 @@ while [[ $# -gt 0 ]]; do
 
         --whole-domain)
             EXTENT="0.0 -60.0 65.0 60.0 1.0"
+            shift
+            ;;
+
+        --small-domain)
+            EXTENT="54.0 7.5 58.0 13.5 1.0"
             shift
             ;;
 
@@ -272,9 +278,11 @@ echo "Finished pre-processing MTG data."
 
 ## Build list of handled data files
 cd "$MTG_READY_DIR"
-filename="/fill-${CHANNEL}-${ymd}*${cycle}.nc"
+# take only the newest file
+# matches regardless of resolution
+filename="/*-${CHANNEL}-${ymd}*-${cycle}.nc"
 rm -f "$ROOT/image_list.txt"
-ls -t $MTG_READY_DIR$filename > "$ROOT/image_list.txt"
+ls -t $MTG_READY_DIR$filename | sed -n 1p > "$ROOT/image_list.txt"
 cd "$ROOT"
 
 ## Build C++ only if requested
